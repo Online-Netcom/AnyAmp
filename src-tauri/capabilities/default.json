@@ -12,6 +12,7 @@
     "allow-ytm-login",
     "allow-ytm-set-visible",
     "allow-ytm-reload",
+    "allow-vis-rate",
     "core:window:allow-start-dragging",
     "core:window:allow-set-size",
     "core:window:allow-minimize",

@@ -6,7 +6,10 @@
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -16,6 +19,13 @@ use tauri::{AppHandle, Emitter};
 
 pub const BARS: usize = 19;
 const FFT_SIZE: usize = 2048;
+
+/// Bildrate des Visualizers (Winamp: „Refresh rate“); 0 = aus.
+static FPS: AtomicU32 = AtomicU32::new(60);
+
+pub fn set_fps(fps: u32) {
+    FPS.store(fps.min(120), Ordering::Relaxed);
+}
 
 #[derive(Default)]
 struct Samples {
@@ -120,7 +130,12 @@ pub fn start(app: AppHandle) {
             let mut was_silent = true;
             let mut reported = false;
             loop {
-                std::thread::sleep(Duration::from_millis(33));
+                let fps = FPS.load(Ordering::Relaxed);
+                if fps == 0 {
+                    std::thread::sleep(Duration::from_millis(200));
+                    continue;
+                }
+                std::thread::sleep(Duration::from_secs_f64(1.0 / fps as f64));
                 let rate = {
                     let s = shared.lock().unwrap();
                     if s.buf.len() < FFT_SIZE {

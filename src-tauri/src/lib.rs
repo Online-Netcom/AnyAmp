@@ -62,6 +62,14 @@ fn ytm_reload(webview: Webview, app: AppHandle) -> Result<(), String> {
     ytm(&app)?.navigate(YTM_URL.parse().unwrap()).map_err(|e| e.to_string())
 }
 
+/// Bildrate des Spektrums (60 / 30 / 0 = aus).
+#[tauri::command]
+fn vis_rate(webview: Webview, fps: u32) -> Result<(), String> {
+    require(&webview, MAIN)?;
+    spectrum::set_fps(fps);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -103,7 +111,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ytm_event, ytm_call, ytm_login, ytm_set_visible, ytm_reload])
+        .invoke_handler(tauri::generate_handler![ytm_event, ytm_call, ytm_login, ytm_set_visible, ytm_reload, vis_rate])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

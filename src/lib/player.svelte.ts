@@ -10,6 +10,7 @@ interface Persisted {
   shuffle: boolean;
   repeat: boolean;
   autoplay: boolean;
+  visFps: number;
 }
 
 function load(): Partial<Persisted> {
@@ -34,6 +35,8 @@ class Player {
   repeat = $state(false);
   /** Am Playlist-Ende passende Titel anhängen (YT-Music-Radio) */
   autoplay = $state(true);
+  /** Visualizer-Bildrate (Winamp „Refresh rate“): 60, 30 oder 0 = aus */
+  visFps = $state(60);
   stopped = $state(true);
 
   #history: number[] = [];
@@ -53,6 +56,7 @@ class Player {
     this.shuffle = saved.shuffle ?? false;
     this.repeat = saved.repeat ?? false;
     this.autoplay = saved.autoplay ?? true;
+    this.visFps = saved.visFps ?? 60;
   }
 
   #save() {
@@ -63,6 +67,7 @@ class Player {
         shuffle: this.shuffle,
         repeat: this.repeat,
         autoplay: this.autoplay,
+        visFps: this.visFps,
       };
       localStorage.setItem(STORE_KEY, JSON.stringify(data));
     } catch {}
@@ -90,10 +95,11 @@ class Player {
       if (this.account) return clearInterval(poll);
       ytm.account(3000).then((a) => (this.account ??= a)).catch(() => {});
     }, 3000);
-    // Visualizer abklingen lassen, wenn keine Daten mehr kommen.
+    ytm.visRate(this.visFps).catch(() => {});
+    // Ohne Wiedergabe kommen keine Daten mehr – Balken fallen lassen (Abfall macht der Visualizer).
     const decay = setInterval(() => {
-      if (this.mode !== 1) this.bars = this.bars.map((b) => Math.max(0, b - 1));
-    }, 50);
+      if (this.mode !== 1 && this.bars.some((b) => b)) this.bars = Array(19).fill(0);
+    }, 100);
     return () => {
       clearInterval(poll);
       clearInterval(decay);
@@ -207,6 +213,13 @@ class Player {
   toggleRepeat() {
     this.repeat = !this.repeat;
     this.#save();
+  }
+
+  /** Klick auf den Visualizer: 60 FPS → 30 FPS → aus */
+  cycleVis() {
+    this.visFps = this.visFps === 60 ? 30 : this.visFps === 30 ? 0 : 60;
+    this.#save();
+    if (this.live) ytm.visRate(this.visFps).catch(() => {});
   }
 
   toggleAutoplay() {

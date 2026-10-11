@@ -21,6 +21,7 @@ fn main() {
             "ytm_login",
             "ytm_set_visible",
             "ytm_reload",
+            "vis_rate",
         ]),
     ))
     .expect("failed to run tauri-build");

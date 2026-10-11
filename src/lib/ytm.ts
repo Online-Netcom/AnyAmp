@@ -113,4 +113,5 @@ export const ytm = {
   login: () => invoke<void>('ytm_login'),
   setVisible: (visible: boolean) => invoke<void>('ytm_set_visible', { visible }),
   reload: () => invoke<void>('ytm_reload'),
+  visRate: (fps: number) => invoke<void>('vis_rate', { fps }),
 };

@@ -79,7 +79,11 @@
       <span class="ghost">88:88</span>
       <span class:blink={player.mode === 2}>{player.mode === 0 ? '' : clock}</span>
     </div>
-    <div class="vis"><Visualizer bars={player.bars} {scale} /></div>
+    <button
+      class="vis"
+      title="Visualizer: {player.visFps ? `${player.visFps} FPS` : 'aus'} – klicken zum Umschalten"
+      onclick={() => player.cycleVis()}
+    ><Visualizer bars={player.bars} fps={player.visFps} {scale} /></button>
   </div>
 
   <!-- Titel-Laufschrift -->
@@ -228,6 +232,7 @@
     }
   }
   .vis {
+    all: unset;
     position: absolute;
     left: 3px;
     top: 21px;
