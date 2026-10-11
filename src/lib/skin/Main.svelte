@@ -83,7 +83,7 @@
       class="vis"
       title="Visualizer: {player.visFps ? `${player.visFps} FPS` : 'aus'} – klicken zum Umschalten"
       onclick={() => player.cycleVis()}
-    ><Visualizer bars={player.bars} fps={player.visFps} {scale} /></button>
+    ><Visualizer /></button>
   </div>
 
   <!-- Titel-Laufschrift -->

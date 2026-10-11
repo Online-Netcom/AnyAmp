@@ -55,7 +55,6 @@ type BridgeEvent =
   | { type: 'ready'; account: Account }
   | ({ type: 'state' } & PlayerState)
   | { type: 'ended'; videoId: string }
-  | { type: 'vis'; bars: number[] }
   | { type: 'result'; id: number; ok: boolean; data?: unknown; error?: string };
 
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
@@ -65,7 +64,6 @@ export function onBridge(handlers: {
   ready?: (account: Account) => void;
   state?: (state: PlayerState) => void;
   ended?: (videoId: string) => void;
-  vis?: (bars: number[]) => void;
 }) {
   return listen<BridgeEvent>('ytm', ({ payload }) => {
     if (payload.type === 'result') {
@@ -76,7 +74,6 @@ export function onBridge(handlers: {
     } else if (payload.type === 'ready') handlers.ready?.(payload.account);
     else if (payload.type === 'state') handlers.state?.(payload);
     else if (payload.type === 'ended') handlers.ended?.(payload.videoId);
-    else if (payload.type === 'vis') handlers.vis?.(payload.bars);
   });
 }
 
@@ -113,5 +110,6 @@ export const ytm = {
   login: () => invoke<void>('ytm_login'),
   setVisible: (visible: boolean) => invoke<void>('ytm_set_visible', { visible }),
   reload: () => invoke<void>('ytm_reload'),
-  visRate: (fps: number) => invoke<void>('vis_rate', { fps }),
+  /** Nativer Visualizer: Bildrate (0 = aus) und Lage im Fenster in Punkten */
+  visConfig: (fps: number, x: number, y: number, px: number) => invoke<void>('vis_config', { fps, x, y, px }),
 };

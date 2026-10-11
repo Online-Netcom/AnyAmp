@@ -26,7 +26,6 @@ class Player {
 
   account = $state<Account | null>(null);
   status = $state<PlayerState | null>(null);
-  bars = $state<number[]>(Array(19).fill(0));
   error = $state('');
 
   playlist = $state<Track[]>([]);
@@ -88,21 +87,14 @@ class Player {
       ended: (videoId) => {
         if (videoId === this.track?.videoId) this.next(true);
       },
-      vis: (bars) => (this.bars = bars),
     });
     // Das „ready“-Event kann verloren gehen, wenn YTM vor der Oberfläche lädt – nachfragen.
     const poll = setInterval(() => {
       if (this.account) return clearInterval(poll);
       ytm.account(3000).then((a) => (this.account ??= a)).catch(() => {});
     }, 3000);
-    ytm.visRate(this.visFps).catch(() => {});
-    // Ohne Wiedergabe kommen keine Daten mehr – Balken fallen lassen (Abfall macht der Visualizer).
-    const decay = setInterval(() => {
-      if (this.mode !== 1 && this.bars.some((b) => b)) this.bars = Array(19).fill(0);
-    }, 100);
     return () => {
       clearInterval(poll);
-      clearInterval(decay);
       unlisten.then((f) => f());
     };
   }
@@ -219,7 +211,6 @@ class Player {
   cycleVis() {
     this.visFps = this.visFps === 60 ? 30 : this.visFps === 30 ? 0 : 60;
     this.#save();
-    if (this.live) ytm.visRate(this.visFps).catch(() => {});
   }
 
   toggleAutoplay() {
@@ -318,10 +309,7 @@ class Player {
       videoId: 'demo0', title: '', author: '', state: 1, time: 83, duration: 183,
       volume: 70, adShowing: false, kbps: 256, khz: 44,
     };
-    const t = setInterval(() => {
-      this.bars = this.bars.map((_, i) => Math.round(Math.random() * (16 - i * 0.5)));
-    }, 80);
-    return () => clearInterval(t);
+    return () => {};
   }
 }
 

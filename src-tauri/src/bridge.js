@@ -335,10 +335,18 @@
   // --- Statusmeldungen ---
 
   let last = '';
+  let lowered = null;
   setInterval(() => {
     const p = player();
     if (!p?.getPlayerState) return;
     const data = p.getVideoData?.() ?? {};
+    // Das Fenster ist unsichtbar: Video in kleinster Qualität dekodieren spart GPU/CPU.
+    // Betrifft nur die Bildspur – die Audioqualität des Kontos bleibt unverändert.
+    if (data.video_id && data.video_id !== lowered) {
+      lowered = data.video_id;
+      p.setPlaybackQualityRange?.('tiny', 'tiny');
+      p.setPlaybackQuality?.('tiny');
+    }
     const state = {
       type: 'state',
       videoId: data.video_id ?? null,

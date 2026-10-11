@@ -6,6 +6,7 @@
   import { onMount, tick } from 'svelte';
   import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
   import { player } from '$lib/player.svelte';
+  import { ytm } from '$lib/ytm';
   import Main from '$lib/skin/Main.svelte';
   import Playlist from '$lib/skin/Playlist.svelte';
   import Library from '$lib/skin/Library.svelte';
@@ -36,6 +37,12 @@
       localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
     } catch {}
     if (player.live) getCurrentWindow().setSize(new LogicalSize(275 * layout.scale, h * layout.scale));
+  });
+
+  // Nativer Visualizer liegt über der LCD-Fläche (Skin-Position 25/43) – Lage und Bildrate melden.
+  $effect(() => {
+    const s = layout.scale;
+    if (player.live) ytm.visConfig(player.visFps, 25 * s, 43 * s, s).catch(() => {});
   });
 
   async function openLibrary() {

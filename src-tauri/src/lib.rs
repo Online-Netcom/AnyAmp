@@ -62,11 +62,11 @@ fn ytm_reload(webview: Webview, app: AppHandle) -> Result<(), String> {
     ytm(&app)?.navigate(YTM_URL.parse().unwrap()).map_err(|e| e.to_string())
 }
 
-/// Bildrate des Spektrums (60 / 30 / 0 = aus).
+/// Visualizer: Bildrate (60 / 30 / 0 = aus) und Lage im Fenster (Punkte, Punkte je Skin-Pixel).
 #[tauri::command]
-fn vis_rate(webview: Webview, fps: u32) -> Result<(), String> {
+fn vis_config(webview: Webview, fps: u32, x: f64, y: f64, px: f64) -> Result<(), String> {
     require(&webview, MAIN)?;
-    spectrum::set_fps(fps);
+    spectrum::configure(fps, x, y, px);
     Ok(())
 }
 
@@ -75,7 +75,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            spectrum::start(app.handle().clone());
+            spectrum::start();
             let window = WebviewWindowBuilder::new(app, YTM, WebviewUrl::External(YTM_URL.parse().unwrap()))
                 .title("YouTube Music – Anmeldung")
                 .inner_size(1000.0, 760.0)
@@ -94,6 +94,7 @@ pub fn run() {
                 .build()?;
             // AnyAmp-Fenster schließen beendet die App (das YTM-Fenster ist nur versteckt).
             if let Some(main) = app.get_webview_window(MAIN) {
+                spectrum::attach(&main);
                 let handle = app.handle().clone();
                 main.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { .. } = event {
@@ -111,7 +112,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ytm_event, ytm_call, ytm_login, ytm_set_visible, ytm_reload, vis_rate])
+        .invoke_handler(tauri::generate_handler![ytm_event, ytm_call, ytm_login, ytm_set_visible, ytm_reload, vis_config])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

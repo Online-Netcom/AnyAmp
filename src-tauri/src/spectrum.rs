@@ -2,7 +2,8 @@
 //!
 //! Der YTM-Player spielt in der WebView über MSE – Web Audio sieht dort nur Stille.
 //! Deshalb hört AnyAmp nativ mit (macOS: Core Audio Process Tap, nur eigene App),
-//! rechnet eine FFT und schickt 19 Balken (0–16) als `vis`-Event an die Oberfläche.
+//! rechnet eine FFT mit Winamp-Falloff und zeichnet 19 Balken (0–16) nativ als
+//! Core-Animation-Overlay über die Oberfläche – ohne Umweg über die WebView.
 
 use std::{
     collections::VecDeque,
@@ -14,8 +15,6 @@ use std::{
 };
 
 use rustfft::{num_complex::Complex, FftPlanner};
-use serde_json::json;
-use tauri::{AppHandle, Emitter};
 
 pub const BARS: usize = 19;
 const FFT_SIZE: usize = 2048;
@@ -23,14 +22,68 @@ const FFT_SIZE: usize = 2048;
 /// Bildrate des Visualizers (Winamp: „Refresh rate“); 0 = aus.
 static FPS: AtomicU32 = AtomicU32::new(60);
 
-pub fn set_fps(fps: u32) {
-    FPS.store(fps.min(120), Ordering::Relaxed);
+/// Bildrate und Lage des Visualizers (Punkte ab oben links, `px` = Punkte je Skin-Pixel).
+pub fn configure(fps: u32, x: f64, y: f64, px: f64) {
+    let fps = fps.min(120);
+    FPS.store(fps, Ordering::Relaxed);
+    #[cfg(target_os = "macos")]
+    unsafe {
+        native::anyamp_vis_layout(x, y, px, fps as i32)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = (x, y, px);
+}
+
+/// Overlay an das AnyAmp-Fenster hängen (Hauptthread).
+pub fn attach(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    if let Ok(ns) = window.ns_window() {
+        unsafe { native::anyamp_vis_attach(ns) };
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
+const BAR_FALL: f32 = 40.0; // Skin-Pixel pro Sekunde
+const PEAK_HOLD: f32 = 0.4; // Sekunden
+const PEAK_FALL: f32 = 14.0; // Skin-Pixel pro Sekunde
+
+/// Winamp-Falloff: Balken steigen sofort und fallen gleichmäßig, Spitzen halten kurz.
+#[derive(Default)]
+pub struct Falloff {
+    level: [f32; BARS],
+    peak: [f32; BARS],
+    hold: [f32; BARS],
+}
+
+impl Falloff {
+    /// Ein Zeitschritt; liefert sichtbare Balken- und Spitzenhöhen (0 = keine Spitze).
+    pub fn step(&mut self, target: &[u8; BARS], dt: f32) -> ([u8; BARS], [u8; BARS]) {
+        let (mut h, mut p) = ([0u8; BARS], [0u8; BARS]);
+        for i in 0..BARS {
+            let t = target[i] as f32;
+            self.level[i] = if t >= self.level[i] { t } else { (self.level[i] - BAR_FALL * dt).max(t) };
+            if self.level[i] >= self.peak[i] {
+                self.peak[i] = self.level[i];
+                self.hold[i] = PEAK_HOLD;
+            } else if self.hold[i] > 0.0 {
+                self.hold[i] -= dt;
+            } else {
+                self.peak[i] = (self.peak[i] - PEAK_FALL * dt).max(0.0);
+            }
+            h[i] = self.level[i].round() as u8;
+            p[i] = if self.peak[i] >= 1.0 { self.peak[i].ceil() as u8 } else { 0 };
+        }
+        (h, p)
+    }
 }
 
 #[derive(Default)]
 struct Samples {
     buf: VecDeque<f32>,
     rate: f64,
+    /// seit der letzten Analyse eingetroffen – bleibt es aus, ist Pause/Stille
+    fresh: usize,
 }
 
 /// Berechnet die Winamp-Balken (0–16) aus `FFT_SIZE` Mono-Samples.
@@ -80,7 +133,7 @@ impl Analyzer {
 }
 
 #[cfg(target_os = "macos")]
-mod tap {
+mod native {
     use std::ffi::c_void;
 
     pub type SamplesCb = extern "C" fn(*mut c_void, *const f32, u32, f64);
@@ -88,6 +141,9 @@ mod tap {
     unsafe extern "C" {
         pub fn anyamp_tap_init(cb: SamplesCb, ctx: *mut c_void);
         pub fn anyamp_tap_refresh(count: *mut u32) -> i32;
+        pub fn anyamp_vis_attach(ns_window: *mut c_void);
+        pub fn anyamp_vis_layout(x: f64, y: f64, px: f64, fps: i32);
+        pub fn anyamp_vis_update(heights: *const u8, peaks: *const u8);
     }
 }
 
@@ -98,24 +154,25 @@ extern "C" fn on_samples(ctx: *mut std::ffi::c_void, mono: *const f32, frames: u
     let Ok(mut s) = shared.try_lock() else { return };
     let data = unsafe { std::slice::from_raw_parts(mono, frames as usize) };
     s.rate = rate;
+    s.fresh += data.len();
     s.buf.extend(data);
     let excess = s.buf.len().saturating_sub(FFT_SIZE);
     s.buf.drain(..excess);
 }
 
 /// Startet Abgriff und Analyse im Hintergrund.
-pub fn start(app: AppHandle) {
+pub fn start() {
     #[cfg(target_os = "macos")]
     {
         let shared: &'static Mutex<Samples> = Box::leak(Box::default());
-        unsafe { tap::anyamp_tap_init(on_samples, shared as *const _ as *mut _) };
+        unsafe { native::anyamp_tap_init(on_samples, shared as *const _ as *mut _) };
 
         // Prozesse der App ändern sich (WebKit startet Dienste nach Bedarf) → regelmäßig abgleichen.
         std::thread::spawn(|| {
             let mut last = (0, 0);
             loop {
                 let mut count = 0;
-                let status = unsafe { tap::anyamp_tap_refresh(&mut count) };
+                let status = unsafe { native::anyamp_tap_refresh(&mut count) };
                 if (status, count) != last {
                     eprintln!("[spectrum] tap status={status} prozesse={count}");
                     last = (status, count);
@@ -126,9 +183,12 @@ pub fn start(app: AppHandle) {
 
         std::thread::spawn(move || {
             let mut analyzer = Analyzer::new();
+            let mut falloff = Falloff::default();
             let mut frame = vec![0f32; FFT_SIZE];
-            let mut was_silent = true;
+            let mut shown = ([0u8; BARS], [0u8; BARS]);
+            let mut starved = 0u32;
             let mut reported = false;
+            let mut last = std::time::Instant::now();
             loop {
                 let fps = FPS.load(Ordering::Relaxed);
                 if fps == 0 {
@@ -136,31 +196,43 @@ pub fn start(app: AppHandle) {
                     continue;
                 }
                 std::thread::sleep(Duration::from_secs_f64(1.0 / fps as f64));
-                let rate = {
-                    let s = shared.lock().unwrap();
-                    if s.buf.len() < FFT_SIZE {
-                        continue;
+                let now = std::time::Instant::now();
+                let dt = (now - last).as_secs_f32().min(0.1);
+                last = now;
+
+                // Ohne neue Samples (Pause, Stopp) keine alten Daten wiederholen → Balken fallen
+                let input = {
+                    let mut s = shared.lock().unwrap();
+                    starved = if s.fresh == 0 { starved + 1 } else { 0 };
+                    s.fresh = 0;
+                    if s.buf.len() < FFT_SIZE || starved > 3 {
+                        None
+                    } else {
+                        for (dst, src) in frame.iter_mut().zip(&s.buf) {
+                            *dst = *src;
+                        }
+                        Some(s.rate)
                     }
-                    for (dst, src) in frame.iter_mut().zip(&s.buf) {
-                        *dst = *src;
-                    }
-                    s.rate
                 };
-                let bars = analyzer.bars(&frame, rate);
-                let silent = bars.iter().all(|&b| b == 0);
-                if !reported && !silent {
-                    eprintln!("[spectrum] Signal erkannt ({rate} Hz)");
-                    reported = true;
+                let target = match input {
+                    Some(rate) => {
+                        let bars = analyzer.bars(&frame, rate);
+                        if !reported && bars.iter().any(|&b| b > 0) {
+                            eprintln!("[spectrum] Signal erkannt ({rate} Hz)");
+                            reported = true;
+                        }
+                        bars
+                    }
+                    None => [0; BARS],
+                };
+                let next = falloff.step(&target, dt);
+                if next != shown {
+                    shown = next;
+                    unsafe { native::anyamp_vis_update(shown.0.as_ptr(), shown.1.as_ptr()) };
                 }
-                if !(silent && was_silent) {
-                    let _ = app.emit_to("main", "ytm", json!({ "type": "vis", "bars": bars }));
-                }
-                was_silent = silent;
             }
         });
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = app; // Windows (WASAPI-Loopback) / Android (Visualizer-API) folgen.
 }
 
 #[cfg(test)]
@@ -187,5 +259,22 @@ mod tests {
         assert!(argmax(low) <= 2, "{low:?}");
         assert!(argmax(high) >= 14, "{high:?}");
         assert!(low[argmax(low)] >= 14, "laut genug: {low:?}");
+    }
+
+    #[test]
+    fn falloff_steigt_sofort_und_faellt_gleichmaessig() {
+        let mut f = Falloff::default();
+        let mut t = [0u8; BARS];
+        t[0] = 16;
+        assert_eq!(f.step(&t, 0.016).0[0], 16);
+        // 0,1 s Stille: 40 px/s → 4 px tiefer, Spitze hält noch oben
+        let (h, p) = f.step(&[0; BARS], 0.1);
+        assert_eq!(h[0], 12);
+        assert_eq!(p[0], 16);
+        // nach ausreichend Zeit ist alles unten
+        for _ in 0..100 {
+            f.step(&[0; BARS], 0.05);
+        }
+        assert_eq!(f.step(&[0; BARS], 0.05), ([0; BARS], [0; BARS]));
     }
 }
