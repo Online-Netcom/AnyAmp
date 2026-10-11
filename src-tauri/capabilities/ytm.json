@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "ytm-bridge",
+  "description": "Erlaubt der Bridge in music.youtube.com, Status an AnyAmp zu melden (Command ytm_event).",
+  "windows": [
+    "ytm"
+  ],
+  "remote": {
+    "urls": [
+      "https://music.youtube.com/*"
+    ]
+  },
+  "permissions": [
+    "allow-ytm-event"
+  ]
+}

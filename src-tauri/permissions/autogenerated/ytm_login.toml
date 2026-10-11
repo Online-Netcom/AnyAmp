@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ytm-login"
+description = "Enables the ytm_login command without any pre-configured scope."
+commands.allow = ["ytm_login"]
+
+[[permission]]
+identifier = "deny-ytm-login"
+description = "Denies the ytm_login command without any pre-configured scope."
+commands.deny = ["ytm_login"]

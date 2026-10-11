@@ -1,0 +1,129 @@
+/* AnyAmp!-Standardskin im Stil von Winamp 2.x.
+   Alle Maße in Skin-Pixeln (Hauptfenster 275×116), skaliert per `zoom` am Wurzelelement.
+   Die Farb-Tokens entsprechen den Rollen in klassischen .wsz-Skins (PLEDIT.TXT, VISCOLOR.TXT),
+   damit ein Skin-Loader sie später überschreiben kann. */
+
+:root {
+  --frame-hi: #6c6c82;
+  --frame: #393a52;
+  --frame-lo: #1c1c2a;
+  --face: #2a2a3f;
+  --title-a: #c7c7dc;
+  --title-b: #6e6e8a;
+  --title-text: #e8e8f6;
+  --lcd-bg: #000;
+  --lcd-text: #00e800;
+  --lcd-dim: #0b3a0b;
+  --btn-hi: #e3e3ee;
+  --btn: #b2b2c4;
+  --btn-lo: #5e5e74;
+  --btn-glyph: #2c2c3e;
+  --led-on: #3cff3c;
+  --led-off: #1d4a1d;
+  /* Playlist (PLEDIT.TXT) */
+  --pl-normal: #00ff00;
+  --pl-current: #ffffff;
+  --pl-auto: #00a000;
+  --pl-bg: #000000;
+  --pl-selected-bg: #0000c6;
+  --pl-font: Arial, Helvetica, sans-serif;
+}
+
+.skin-text {
+  font-family: 'Silkscreen', monospace;
+  font-size: 8px;
+  line-height: 6px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  -webkit-font-smoothing: none;
+}
+
+/* Gerahmte Fläche (Fensterkörper) */
+.panel {
+  background: var(--face);
+  box-shadow: inset 1px 1px 0 var(--frame-hi), inset -1px -1px 0 var(--frame-lo);
+}
+
+/* Vertiefte Anzeige (LCD, Playlist-Liste) */
+.inset {
+  background: var(--lcd-bg);
+  box-shadow: inset 1px 1px 0 var(--frame-lo), inset -1px -1px 0 var(--frame-hi);
+}
+
+/* Erhabener Knopf */
+.btn {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: linear-gradient(var(--btn-hi), var(--btn) 45%, var(--btn-lo));
+  box-shadow: inset 1px 1px 0 #fff8, inset -1px -1px 0 #0008, 0 0 0 1px #000;
+  color: var(--btn-glyph);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+.btn:active:not(:disabled),
+.btn.down {
+  background: linear-gradient(var(--btn-lo), var(--btn) 60%, var(--btn-hi));
+  box-shadow: inset 1px 1px 0 #0008, inset -1px -1px 0 #fff4, 0 0 0 1px #000;
+}
+.btn:disabled {
+  opacity: 0.55;
+}
+.btn svg {
+  display: block;
+  shape-rendering: crispEdges;
+}
+
+/* Titelleiste */
+.titlebar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 14px;
+  background: repeating-linear-gradient(var(--title-a) 0 1px, var(--title-b) 1px 2px);
+  box-shadow: inset 0 -1px 0 #0006;
+}
+.titlebar .label {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  transform: translateX(-50%);
+  padding: 0 4px;
+  background: var(--frame);
+  color: var(--title-text);
+  height: 7px;
+  line-height: 7px;
+  pointer-events: none;
+}
+.titlebar .wbtn {
+  top: 3px;
+  width: 9px;
+  height: 9px;
+  font-size: 7px;
+}
+
+/* Schieberegler (Position, Lautstärke) */
+.slider {
+  position: absolute;
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  background: transparent;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 100%;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(var(--btn-hi), var(--btn) 50%, var(--btn-lo));
+  box-shadow: inset 1px 1px 0 #fff8, inset -1px -1px 0 #0008, 0 0 0 1px #000;
+}
+.slider:disabled::-webkit-slider-thumb {
+  visibility: hidden;
+}

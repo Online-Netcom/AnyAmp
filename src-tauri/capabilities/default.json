@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "allow-ytm-call",
+    "allow-ytm-login",
+    "allow-ytm-set-visible",
+    "allow-ytm-reload",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-size",
+    "core:window:allow-minimize",
+    "core:window:allow-close"
+  ]
+}

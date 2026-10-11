@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ytm-event"
+description = "Enables the ytm_event command without any pre-configured scope."
+commands.allow = ["ytm_event"]
+
+[[permission]]
+identifier = "deny-ytm-event"
+description = "Denies the ytm_event command without any pre-configured scope."
+commands.deny = ["ytm_event"]

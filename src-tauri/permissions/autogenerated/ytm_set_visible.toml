@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ytm-set-visible"
+description = "Enables the ytm_set_visible command without any pre-configured scope."
+commands.allow = ["ytm_set_visible"]
+
+[[permission]]
+identifier = "deny-ytm-set-visible"
+description = "Denies the ytm_set_visible command without any pre-configured scope."
+commands.deny = ["ytm_set_visible"]
