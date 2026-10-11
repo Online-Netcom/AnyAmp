@@ -23,6 +23,13 @@ static AudioDeviceIOProcID g_proc = NULL;
 static NSArray<NSNumber *> *g_procs = nil;
 static double g_rate = 48000;
 
+// Process Taps gibt es ab macOS 14.2. Bewusst kein @available: das bräuchte
+// __isPlatformVersionAtLeast aus compiler-rt, das im Release-Link (LTO) fehlt.
+static BOOL taps_supported(void) {
+    NSOperatingSystemVersion v = {14, 2, 0};
+    return [[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:v];
+}
+
 #define MAX_FRAMES 8192
 static float g_mono[MAX_FRAMES];
 
@@ -115,7 +122,7 @@ static void teardown(void) {
         g_agg = kAudioObjectUnknown;
     }
     if (g_tap != kAudioObjectUnknown) {
-        if (@available(macOS 14.2, *)) AudioHardwareDestroyProcessTap(g_tap);
+        if (taps_supported()) AudioHardwareDestroyProcessTap(g_tap);
         g_tap = kAudioObjectUnknown;
     }
     g_procs = nil;
@@ -169,7 +176,7 @@ void anyamp_tap_init(anyamp_samples_cb cb, void *ctx) {
 int32_t anyamp_tap_refresh(uint32_t *count) {
     @autoreleasepool {
         *count = 0;
-        if (@available(macOS 14.2, *)) {
+        if (taps_supported()) {
             NSArray<NSNumber *> *procs = own_processes();
             if (g_procs && [procs isEqualToArray:g_procs]) {
                 *count = (uint32_t)procs.count;
