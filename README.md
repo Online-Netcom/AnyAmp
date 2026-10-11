@@ -1,3 +1,5 @@
+<p align="center"><img src="design/logo.png" width="160" alt="AnyAmp! Logo"></p>
+
 # AnyAmp!
 
 Ein schlanker Winamp-Klon für **YouTube Music** – mit deinem eigenen, aktiven **YouTube-(Music-)Premium-Abo**.
@@ -9,7 +11,7 @@ Wiedergabe ausschließlich über den offiziellen YT-Music-Player in deiner angem
 - Suche nach Songs, Alben, Playlists und Künstlern; Alben/Playlists komplett hinzufügen
 - Eigene YT-Music-Playlists und „Musik, die ich mag“
 - Playlist mit Shuffle, Repeat und Autoplay (hängt am Ende passende Titel an)
-- Echter Spektrum-Visualizer (macOS: Core Audio Process Tap auf die eigene App)
+- Echter Spektrum-Visualizer mit 60 FPS und Winamp-Falloff (macOS: Core Audio Process Tap auf die eigene App)
 
 ## Entwicklung
 
