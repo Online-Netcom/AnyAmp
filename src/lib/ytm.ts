@@ -52,6 +52,9 @@ export interface PlayerState {
   author: string;
   state: number; // -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
   time: number;
+  /** genaue Position (s) zum Zeitpunkt `at` (ms seit Epoche) */
+  exact?: number;
+  at?: number;
   duration: number;
   volume: number;
   adShowing: boolean;

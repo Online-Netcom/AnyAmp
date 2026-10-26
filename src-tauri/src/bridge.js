@@ -626,6 +626,9 @@
       author: data.author ?? '',
       state: p.getPlayerState(), // -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
       time: Math.floor(p.getCurrentTime?.() ?? 0),
+      // genaue Position samt Zeitpunkt – die Oberfläche rechnet damit weiter (Live-Liedtext)
+      exact: Math.round((p.getCurrentTime?.() ?? 0) * 100) / 100,
+      at: Date.now(),
       duration: Math.floor(p.getDuration?.() ?? 0),
       volume: p.getVolume?.() ?? 100,
       adShowing: p.classList.contains('ad-showing'),
@@ -640,7 +643,8 @@
         requested = null;
       }
     }
-    const json = JSON.stringify(state);
+    // exact/at ändern sich ständig – nur senden, wenn sich sonst etwas geändert hat
+    const json = JSON.stringify({ ...state, exact: 0, at: 0 });
     if (json !== last) {
       last = json;
       send(state);

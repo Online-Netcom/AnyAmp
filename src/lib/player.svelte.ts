@@ -230,6 +230,15 @@ class Player {
     this.#save();
   }
 
+  /** Aktuelle Position in Sekunden, zwischen den Statusmeldungen hochgerechnet (Live-Liedtext) */
+  position() {
+    const s = this.status;
+    if (!s || this.stopped) return 0;
+    const base = s.exact ?? s.time;
+    if (this.mode !== 1 || !s.at) return base;
+    return base + Math.min(5, (Date.now() - s.at) / 1000);
+  }
+
   /** Song liken bzw. Like entfernen (Standard: der laufende Song) */
   async toggleLike(videoId = this.status?.videoId ?? this.track?.videoId) {
     if (!videoId || !this.canPlay) return;
