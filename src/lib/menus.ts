@@ -3,6 +3,7 @@ import { layout, SCALES } from './layout.svelte';
 import { player, type VisMode } from './player.svelte';
 import { ui, type MenuEntry } from './ui.svelte';
 import { updater } from './updater.svelte';
+import { skin } from './skin/skin.svelte';
 import { isTrack, ytm, type Collection, type Item, type Track } from './ytm';
 
 /** Alle Titel der Einträge – Alben/Playlists werden dafür geladen. */
@@ -178,6 +179,14 @@ export function optionsMenu(e: MouseEvent, extra: { version: string; quit: () =>
     {
       label: 'Größe',
       submenu: SCALES.map((s) => ({ label: `${s}×`.replace('.', ','), checked: layout.scale === s, action: () => (layout.scale = s) })),
+    },
+    {
+      label: 'Skin',
+      submenu: [
+        { label: 'Winamp-Skin laden (.wsz) …', action: () => document.getElementById('skin-file')?.click() },
+        { label: 'AnyAmp!-Standard', checked: !skin.current, action: () => skin.reset() },
+        ...(skin.current ? ['sep' as const, { label: skin.current.name, checked: true, disabled: true }] : []),
+      ],
     },
     {
       label: 'Visualizer',

@@ -22,6 +22,25 @@
     };
   });
 
+  /** Untermenü im Fenster halten (das Fenster ist nur so breit wie der Player):
+   *  rechts kein Platz → links daneben; geht beides nicht → so weit nach links schieben,
+   *  dass es passt (überlappt dann das Hauptmenü). Unten überstehend → nach oben. */
+  function fit(node: HTMLElement, sub: boolean) {
+    if (!sub) return;
+    const parent = node.parentElement!.getBoundingClientRect();
+    const r = node.getBoundingClientRect();
+    if (r.right > innerWidth) {
+      if (parent.left - r.width >= 0) {
+        node.style.left = 'auto';
+        node.style.right = '100%';
+      } else {
+        node.style.left = `${(innerWidth - r.width - parent.left) / scale}px`;
+      }
+    }
+    const over = r.bottom - innerHeight;
+    if (over > 0) node.style.top = `${-2 - over / scale}px`;
+  }
+
   function run(entry: MenuEntry) {
     if (entry === 'sep' || entry.disabled || entry.submenu) return;
     ui.closeMenu();
@@ -40,7 +59,7 @@
 />
 
 {#snippet list(entries: MenuEntry[], sub: boolean)}
-  <div class="menu" class:sub role="menu">
+  <div class="menu" class:sub role="menu" use:fit={sub}>
     {#each entries as entry, i (i)}
       {#if entry === 'sep'}
         <div class="sep"></div>
@@ -89,6 +108,7 @@
   }
   .sub {
     position: absolute;
+    z-index: 1;
     left: 100%;
     top: -2px;
     max-height: 200px;

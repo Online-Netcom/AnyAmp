@@ -54,6 +54,16 @@ pub fn configure(fps: u32, scope: bool, x: f64, y: f64, px: f64) {
     let _ = (x, y, px);
 }
 
+/// Farben aus dem Skin (VISCOLOR.TXT, 24 × 0xRRGGBB); leer = Standardfarben.
+pub fn set_colors(colors: &[u32]) {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        native::anyamp_vis_colors(colors.as_ptr(), colors.len() as i32)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = colors;
+}
+
 /// Overlay an das AnyAmp-Fenster hängen (Hauptthread).
 pub fn attach(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "macos")]
@@ -179,6 +189,7 @@ mod native {
         pub fn anyamp_vis_layout(x: f64, y: f64, px: f64, fps: i32);
         pub fn anyamp_vis_update(heights: *const u8, peaks: *const u8);
         pub fn anyamp_vis_scope(rows: *const u8);
+        pub fn anyamp_vis_colors(colors: *const u32, n: i32);
     }
 }
 

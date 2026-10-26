@@ -5,6 +5,8 @@
   import { player } from '$lib/player.svelte';
   import { ytm, type Track } from '$lib/ytm';
   import Icon from './Icon.svelte';
+  import { skin } from './skin.svelte';
+  import SkinFrame from './SkinFrame.svelte';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -17,6 +19,7 @@
   let body = $state<HTMLDivElement>();
   let active = $state(-1);
   const cache = new Map<string, Lyrics | null>();
+  const skinned = $derived(skin.has('pledit'));
 
   const track = $derived(player.track);
   const videoId = $derived(player.status?.videoId ?? track?.videoId ?? null);
@@ -104,13 +107,19 @@
   });
 </script>
 
-<section class="ly panel" aria-label="Liedtext">
+<section class="ly panel" class:skinned aria-label="Liedtext">
+  {#if skinned}
+    <SkinFrame title="AnyAmp! Liedtext" />
+    <div class="skin-drag" data-tauri-drag-region></div>
+    <button class="hot" style="left:264px;top:3px;width:9px;height:9px" title="Liedtext schließen (I)" onclick={onClose}></button>
+  {:else}
   <div class="titlebar" data-tauri-drag-region>
     <span class="label skin-text">AnyAmp! Liedtext</span>
     <button class="btn wbtn" style="left:264px" title="Liedtext schließen (I)" onclick={onClose}>
       <Icon name="close" size={7} />
     </button>
   </div>
+  {/if}
 
   <div class="body inset" bind:this={body}>
     {#if title}<p class="head">{title}</p>{/if}
@@ -135,6 +144,25 @@
 </section>
 
 <style>
+  .skinned .body {
+    left: 12px;
+    right: 20px;
+    top: 20px;
+    bottom: 38px;
+    box-shadow: none;
+  }
+  .skin-drag {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 12px;
+    height: 14px;
+  }
+  .hot {
+    all: unset;
+    position: absolute;
+    z-index: 1;
+  }
   .ly {
     position: relative;
     width: 275px;

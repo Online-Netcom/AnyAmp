@@ -49,46 +49,27 @@ static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update w
         self.wantsLayer = YES;
         self.layer.backgroundColor = CGColorGetConstantColor(kCGColorClear);
         _px = 1;
-        // Harte Farbstufen: jede Zeile zweimal mit gleicher Position
-        NSMutableArray *colors = [NSMutableArray array];
-        NSMutableArray *locs = [NSMutableArray array];
-        for (int row = 15; row >= 0; row--) { // Layer-Ursprung unten → unten beginnen
-            CGColorRef c = rgb(COLORS[row]);
-            [colors addObject:(__bridge id)c];
-            [colors addObject:(__bridge id)c];
-            CGColorRelease(c);
-            int k = 15 - row;
-            [locs addObject:@(k / 16.0)];
-            [locs addObject:@((k + 1) / 16.0)];
-        }
-        CGColorRef peak = rgb(0x969696);
         for (int i = 0; i < BARS; i++) {
             _cols[i] = [CALayer layer];
             _cols[i].masksToBounds = YES;
             _cols[i].anchorPoint = CGPointZero;
             _fills[i] = [CAGradientLayer layer];
-            _fills[i].colors = colors;
-            _fills[i].locations = locs;
             _fills[i].startPoint = CGPointMake(0.5, 0);
             _fills[i].endPoint = CGPointMake(0.5, 1);
             _fills[i].anchorPoint = CGPointZero;
             [_cols[i] addSublayer:_fills[i]];
             [self.layer addSublayer:_cols[i]];
             _peaks[i] = [CALayer layer];
-            _peaks[i].backgroundColor = peak;
             _peaks[i].anchorPoint = CGPointZero;
             _peaks[i].hidden = YES;
             [self.layer addSublayer:_peaks[i]];
         }
-        CGColorRelease(peak);
-        // Oszilloskop: Pixel-Spalten als ein Pfad (Winamp „Lines“-Stil), hellgrau wie VISCOLOR
+        // Oszilloskop: Pixel-Spalten als ein Pfad (Winamp „Lines“-Stil)
         _scope = [CAShapeLayer layer];
-        CGColorRef osc = rgb(0xd6d6de);
-        _scope.fillColor = osc;
-        CGColorRelease(osc);
         _scope.anchorPoint = CGPointZero;
         _scope.hidden = YES;
         [self.layer addSublayer:_scope];
+        [self setColors:COLORS peak:0x969696 scope:0xd6d6de];
         if ([self respondsToSelector:@selector(displayLinkWithTarget:selector:)]) {
             _link = [self displayLinkWithTarget:self selector:@selector(tick:)];
             [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
@@ -96,6 +77,34 @@ static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update w
         }
     }
     return self;
+}
+
+/// Spektrum-Farben (16 Zeilen, oben→unten), Spitzen und Oszilloskop – Standard oder aus VISCOLOR.TXT.
+- (void)setColors:(const uint32_t *)rows peak:(uint32_t)peak scope:(uint32_t)scope {
+    // Harte Farbstufen: jede Zeile zweimal mit gleicher Position
+    NSMutableArray *colors = [NSMutableArray array];
+    NSMutableArray *locs = [NSMutableArray array];
+    for (int row = 15; row >= 0; row--) { // Layer-Ursprung unten → unten beginnen
+        CGColorRef c = rgb(rows[row]);
+        [colors addObject:(__bridge id)c];
+        [colors addObject:(__bridge id)c];
+        CGColorRelease(c);
+        int k = 15 - row;
+        [locs addObject:@(k / 16.0)];
+        [locs addObject:@((k + 1) / 16.0)];
+    }
+    CGColorRef p = rgb(peak), o = rgb(scope);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    for (int i = 0; i < BARS; i++) {
+        _fills[i].colors = colors;
+        _fills[i].locations = locs;
+        _peaks[i].backgroundColor = p;
+    }
+    _scope.fillColor = o;
+    [CATransaction commit];
+    CGColorRelease(p);
+    CGColorRelease(o);
 }
 
 // Klicks gehen an die Web-Oberfläche darunter (Visualizer umschalten).
@@ -225,6 +234,23 @@ void anyamp_vis_layout(double x, double y, double px, int fps) {
 }
 
 static void wake_if_asleep(void);
+
+/// Farben aus VISCOLOR.TXT (24 Werte 0xRRGGBB); n < 24 = Standardfarben.
+void anyamp_vis_colors(const uint32_t *c, int n) {
+    // Blöcke können keine C-Arrays einfangen → in eine Struktur packen
+    struct { uint32_t rows[16]; } set;
+    uint32_t peak = 0x969696, scope = 0xd6d6de;
+    if (n >= 24) {
+        memcpy(set.rows, c + 2, sizeof set.rows);
+        peak = c[23];
+        scope = c[18]; // hellste Oszilloskop-Farbe
+    } else {
+        memcpy(set.rows, COLORS, sizeof set.rows);
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [g_view setColors:set.rows peak:peak scope:scope];
+    });
+}
 
 /// Neue Balken- und Spitzenhöhen (0–16), aus beliebigem Thread.
 void anyamp_vis_update(const uint8_t *heights, const uint8_t *peaks) {

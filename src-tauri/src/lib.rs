@@ -71,6 +71,14 @@ fn vis_config(webview: Webview, fps: u32, mode: String, x: f64, y: f64, px: f64,
     Ok(())
 }
 
+/// Visualizer-Farben aus dem Skin (VISCOLOR.TXT); leere Liste = Standard.
+#[tauri::command]
+fn vis_colors(webview: Webview, colors: Vec<u32>) -> Result<(), String> {
+    require(&webview, MAIN)?;
+    spectrum::set_colors(&colors);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
@@ -130,7 +138,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ytm_event, ytm_call, ytm_login, ytm_set_visible, ytm_reload, vis_config])
+        .invoke_handler(tauri::generate_handler![ytm_event, ytm_call, ytm_login, ytm_set_visible, ytm_reload, vis_config, vis_colors])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -7,6 +7,8 @@
   import { ui } from '$lib/ui.svelte';
   import { ytm, isTrack, type Collection, type Item, type SearchKind } from '$lib/ytm';
   import Icon from './Icon.svelte';
+  import { skin } from './skin.svelte';
+  import SkinFrame from './SkinFrame.svelte';
   import TrackList from './TrackList.svelte';
 
   let { onClose }: { onClose: () => void } = $props();
@@ -214,16 +216,23 @@
   });
 
   const account = $derived(player.account);
+  const skinned = $derived(skin.has('pledit'));
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-<section class="ml panel" aria-label="Media Library" tabindex="0" onkeydown={keydown}>
+<section class="ml panel" class:skinned aria-label="Media Library" tabindex="0" onkeydown={keydown}>
+  {#if skinned}
+    <SkinFrame title="AnyAmp! Media Library" />
+    <div class="skin-drag" data-tauri-drag-region></div>
+    <button class="hot" style="left:264px;top:3px;width:9px;height:9px" title="Schließen" onclick={onClose}></button>
+  {:else}
   <div class="titlebar" data-tauri-drag-region>
     <span class="label skin-text">AnyAmp! Media Library</span>
     <button class="btn wbtn" style="left:264px" title="Schließen" onclick={onClose}>
       <Icon name="close" size={7} />
     </button>
   </div>
+  {/if}
 
   {#if !account || account.error}
     <p class="note">{account?.error ?? 'Verbinde mit YouTube Music …'}</p>
@@ -294,6 +303,42 @@
 </section>
 
 <style>
+  /* Mit Skin: Winamp-Rahmen (oben 20, unten 38, Seiten 12/20) */
+  .skinned form {
+    left: 12px;
+    right: 20px;
+    top: 22px;
+  }
+  .skinned .tabs {
+    left: 12px;
+    right: 20px;
+    top: 38px;
+  }
+  .skinned .body {
+    left: 12px;
+    right: 20px;
+    top: 51px;
+    bottom: 38px;
+  }
+  .skinned .bottom .pbtn {
+    top: 205px;
+  }
+  .skinned .status {
+    top: 209px;
+    right: 20px;
+  }
+  .skin-drag {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 12px;
+    height: 14px;
+  }
+  .hot {
+    all: unset;
+    position: absolute;
+    z-index: 1;
+  }
   .ml {
     position: relative;
     width: 275px;

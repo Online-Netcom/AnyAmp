@@ -11,6 +11,8 @@
   import { updater } from '$lib/updater.svelte';
   import { ytm } from '$lib/ytm';
   import Main from '$lib/skin/Main.svelte';
+  import SkinMain from '$lib/skin/SkinMain.svelte';
+  import { skin } from '$lib/skin/skin.svelte';
   import Playlist from '$lib/skin/Playlist.svelte';
   import Library from '$lib/skin/Library.svelte';
   import Lyrics from '$lib/skin/Lyrics.svelte';
@@ -37,7 +39,9 @@
     const s = layout.scale;
     // Offenes Kontextmenü: das native Overlay läge sonst darüber
     const off = player.visMode === 'off' || layout.shade || !!ui.menu;
-    if (player.live) ytm.visConfig(off ? 0 : player.visFps, player.visMode, 25 * s, 43 * s, s, volume).catch(() => {});
+    // Winamp-Skins: Visualizer-Fläche bei x=24 (eigener Look: 25, wegen des LCD-Rahmens)
+    const x = skin.current ? 24 : 25;
+    if (player.live) ytm.visConfig(off ? 0 : player.visFps, player.visMode, x * s, 43 * s, s, volume).catch(() => {});
   });
 
   layout.openLibrary = async () => {
@@ -52,6 +56,7 @@
   });
 
   onMount(() => {
+    skin.restore();
     const stop = player.init();
     // still nach Updates schauen, kurz nach dem Start
     const t = player.live ? window.setTimeout(() => updater.check(true), 8000) : 0;
@@ -102,7 +107,7 @@
 <svelte:window onkeydown={keydown} />
 
 <div class="app" style:zoom={layout.scale}>
-  <Main />
+  {#if skin.current}<SkinMain />{:else}<Main />{/if}
   {#if layout.playlist}
     <Playlist onAdd={layout.openLibrary} onClose={() => (layout.playlist = false)} />
   {/if}
@@ -115,6 +120,19 @@
 </div>
 
 <Menu scale={layout.scale} />
+
+<!-- Skin-Auswahl (Optionsmenü → Skin → Laden …) -->
+<input
+  id="skin-file"
+  type="file"
+  accept=".wsz,.zip"
+  hidden
+  onchange={(e) => {
+    const f = e.currentTarget.files?.[0];
+    if (f) skin.load(f);
+    e.currentTarget.value = '';
+  }}
+/>
 
 <style>
   :global(html, body) {

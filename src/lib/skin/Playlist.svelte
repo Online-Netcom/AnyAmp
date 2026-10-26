@@ -4,6 +4,8 @@
   import { playlistMenu, tracksOf } from '$lib/menus';
   import { ui } from '$lib/ui.svelte';
   import type { Item } from '$lib/ytm';
+  import { skin } from './skin.svelte';
+  import SkinFrame from './SkinFrame.svelte';
   import Icon from './Icon.svelte';
   import TrackList from './TrackList.svelte';
 
@@ -21,6 +23,18 @@
     } catch (e) {
       player.error = (e as Error).message;
     }
+  }
+
+  const skinned = $derived(skin.has('pledit'));
+
+  /** LIST-Knopf des Skins: was im Standard-Look eigene Knöpfe hat */
+  function listMenu(e: MouseEvent) {
+    ui.openMenu(e, [
+      { label: 'Autoplay', checked: player.autoplay, action: () => player.toggleAutoplay() },
+      { label: 'Reihenfolge mischen', action: () => player.randomize() },
+      'sep',
+      { label: 'Playlist leeren', disabled: !player.playlist.length, action: () => player.clear() },
+    ]);
   }
 
   function removeSelected() {
@@ -42,13 +56,19 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-<section class="pl panel" aria-label="Playlist" tabindex="0" onkeydown={keydown}>
-  <div class="titlebar" data-tauri-drag-region>
-    <span class="label skin-text">AnyAmp! Playlist</span>
-    <button class="btn wbtn" style="left:264px" title="Playlist schließen" onclick={onClose}>
-      <Icon name="close" size={7} />
-    </button>
-  </div>
+<section class="pl panel" class:skinned aria-label="Playlist" tabindex="0" onkeydown={keydown}>
+  {#if skinned}
+    <SkinFrame title="AnyAmp! Playlist" playlist />
+    <div class="skin-drag" data-tauri-drag-region></div>
+    <button class="hot" style="left:264px;top:3px;width:9px;height:9px" title="Playlist schließen" onclick={onClose}></button>
+  {:else}
+    <div class="titlebar" data-tauri-drag-region>
+      <span class="label skin-text">AnyAmp! Playlist</span>
+      <button class="btn wbtn" style="left:264px" title="Playlist schließen" onclick={onClose}>
+        <Icon name="close" size={7} />
+      </button>
+    </div>
+  {/if}
 
   <div
     class="body inset"
@@ -78,6 +98,14 @@
     {/if}
   </div>
 
+  {#if skinned}
+    <!-- Knopfflächen der Skin-Grafik (ADD, REM, SEL, MISC … LIST) -->
+    <button class="hot" style="left:14px;top:206px;width:25px;height:18px" title="Songs suchen und hinzufügen" onclick={onAdd}></button>
+    <button class="hot" style="left:43px;top:206px;width:25px;height:18px" title="Auswahl entfernen (Entf)" onclick={removeSelected}></button>
+    <button class="hot" style="left:72px;top:206px;width:25px;height:18px" title="Alles / nichts auswählen" onclick={() => (selected = selected.size ? new Set() : new Set(player.playlist.map((_, i) => i)))}></button>
+    <button class="hot" style="left:101px;top:206px;width:25px;height:18px" title="Reihenfolge mischen" onclick={() => player.randomize()}></button>
+    <button class="hot" style="left:228px;top:206px;width:25px;height:18px" title="Optionen (Autoplay, Leeren …)" onclick={listMenu}></button>
+  {:else}
   <div class="bottom">
     <button class="btn pbtn skin-text" style="left:11px" title="Songs suchen und hinzufügen" onclick={onAdd}>+ADD</button>
     <button class="btn pbtn skin-text" style="left:40px" title="Auswahl entfernen (Entf)" disabled={!selected.size} onclick={removeSelected}>-REM</button>
@@ -103,6 +131,7 @@
 
     <button class="btn pbtn skin-text" style="left:232px;width:32px" title="Playlist leeren" disabled={!player.playlist.length} onclick={() => player.clear()}>CLEAR</button>
   </div>
+  {/if}
 </section>
 
 <style>
@@ -111,6 +140,29 @@
     width: 275px;
     height: 232px;
     outline: none;
+  }
+  /* Mit Skin: Geometrie des Winamp-Playlist-Editors (Rahmen 20/20/38/12) */
+  .skinned {
+    background: var(--pl-bg);
+  }
+  .skinned .body {
+    left: 12px;
+    top: 20px;
+    right: 20px;
+    bottom: 38px;
+    box-shadow: none;
+  }
+  .skin-drag {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 12px;
+    height: 14px;
+  }
+  .hot {
+    all: unset;
+    position: absolute;
+    z-index: 1;
   }
   .body {
     position: absolute;

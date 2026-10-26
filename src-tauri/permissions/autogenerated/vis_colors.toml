@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vis-colors"
+description = "Enables the vis_colors command without any pre-configured scope."
+commands.allow = ["vis_colors"]
+
+[[permission]]
+identifier = "deny-vis-colors"
+description = "Denies the vis_colors command without any pre-configured scope."
+commands.deny = ["vis_colors"]
