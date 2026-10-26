@@ -19,19 +19,21 @@
     onActivate: (index: number) => void;
   } = $props();
 
-  const KIND = { album: 'ALBUM', playlist: 'PLAYLIST', artist: 'KÜNSTLER' };
+  const KIND = { album: 'ALBUM', playlist: 'PLAYLIST', artist: 'KÜNSTLER', genre: 'GENRE' };
 
   function row(t: Item) {
     if (isTrack(t)) return { key: t.videoId, name: `${t.artists.join(', ')} - ${t.title}`, right: t.duration, tip: `${t.title} – ${t.subtitle}` };
     if (t.kind !== 'album') {
       // Playlist/Künstler: Name links, Titelzahl rechts (aus „Dennis Gehrke • 12 Titel“)
       const count = t.subtitle.match(/(\d[\d.]*)\s*(Titel|Songs?|tracks?)/i)?.[1] ?? '';
-      return { key: t.browseId, name: t.title, right: count, tip: `${KIND[t.kind]}: ${t.title} – ${t.subtitle}` };
+      return { key: t.browseId + (t.params ?? ''), name: t.title, right: count, tip: `${KIND[t.kind]}: ${t.title} – ${t.subtitle}` };
     }
     const by = t.artists.join(', ') || t.subtitle;
+    // Singles/EPs kennzeichnen, damit sie sich von Alben abheben
+    const tag = t.type && !/^album$/i.test(t.type) ? ` (${t.type})` : '';
     return {
       key: t.browseId,
-      name: `${by} - ${t.title}`,
+      name: `${by} - ${t.title}${tag}`,
       right: t.year || t.type,
       tip: `${t.type || KIND[t.kind]}: ${t.title} – ${t.subtitle}`,
     };

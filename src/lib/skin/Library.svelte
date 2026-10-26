@@ -8,9 +8,10 @@
 
   let { onClose }: { onClose: () => void } = $props();
 
-  type Tab = SearchKind | 'mine';
+  type Tab = SearchKind | 'mine' | 'genres';
   const TABS: [Tab, string][] = [
     ['mine', 'MEINE'],
+    ['genres', 'GENRES'],
     ['songs', 'SONGS'],
     ['albums', 'ALBEN'],
     ['playlists', 'PLAYLISTS'],
@@ -55,8 +56,10 @@
   async function search(e?: Event) {
     e?.preventDefault();
     const q = query.trim();
-    if (kind === 'mine' && e) kind = 'songs'; // Suchen aus „Meine“ heraus → Songs
+    // Suchen aus „Meine“/„Genres“ heraus → Songs
+    if ((kind === 'mine' || kind === 'genres') && e) kind = 'songs';
     if (kind === 'mine') return loadMine();
+    if (kind === 'genres') return loadGenres();
     if (!q || !player.live) return;
     const k = kind;
     const key = `${k}:${q}`;
@@ -79,7 +82,7 @@
   function setKind(k: Tab) {
     if (k === kind && !stack.length) return;
     kind = k;
-    if (k === 'mine' || query.trim()) search();
+    if (k === 'mine' || k === 'genres' || query.trim()) search();
     else {
       stack = [];
       results = [];
@@ -95,6 +98,22 @@
       const mine = await ytm.library();
       if (kind === 'mine') results = mine;
       if (!mine.length) message = 'Keine eigenen Playlists';
+    });
+  }
+
+  /** Genres und Stimmungen von YT Music – ändern sich selten, daher zwischengespeichert */
+  async function loadGenres() {
+    stack = [];
+    selected = new Set();
+    if (cache.has('genres')) {
+      results = cache.get('genres')!;
+      return;
+    }
+    results = [];
+    await busyWith(async () => {
+      const list = await ytm.genres();
+      cache.set('genres', list);
+      if (kind === 'genres') results = list;
     });
   }
 
@@ -117,7 +136,7 @@
     const out: Track[] = [];
     for (const it of list) {
       if (isTrack(it)) out.push(it);
-      else if (it.kind !== 'artist') out.push(...(await ytm.open(it)).filter(isTrack));
+      else if (it.kind === 'album' || it.kind === 'playlist') out.push(...(await ytm.open(it)).filter(isTrack));
     }
     return out;
   }
@@ -157,7 +176,11 @@
     if (view) {
       const tracks = view.items.filter(isTrack);
       const total = tracks.reduce((s, t) => s + parseDuration(t.duration), 0);
-      return `${tracks.length} Titel${total ? ` · ${formatTime(total)}` : ''}`;
+      const folders = view.items.length - tracks.length;
+      const parts = [];
+      if (tracks.length) parts.push(`${tracks.length} Titel${total ? ` · ${formatTime(total)}` : ''}`);
+      if (folders) parts.push(`${folders} ${view.source.kind === 'genre' ? 'Playlists' : 'Alben/Playlists'}`);
+      return parts.join(' · ') || 'Leer';
     }
     return `${player.account?.name ?? ''} · Premium`;
   });
@@ -166,7 +189,7 @@
     if (!view) return '';
     const c = view.source;
     const by = c.artists.join(', ');
-    return c.kind === 'artist' ? c.title : `${c.title}${by ? ` – ${by}` : ''}${c.year ? ` (${c.year})` : ''}`;
+    return c.kind === 'artist' || c.kind === 'genre' ? c.title : `${c.title}${by ? ` – ${by}` : ''}${c.year ? ` (${c.year})` : ''}`;
   });
 
   const account = $derived(player.account);
@@ -208,7 +231,7 @@
     </div>
 
     <div class="body inset">
-      <TrackList tracks={items} bind:selected numbered={!!view && view.source.kind !== 'artist'} onActivate={activate} />
+      <TrackList tracks={items} bind:selected numbered={!!view && (view.source.kind === 'album' || view.source.kind === 'playlist')} onActivate={activate} />
     </div>
 
     <div class="bottom">

@@ -39,10 +39,12 @@
     if (player.live) getCurrentWindow().setSize(new LogicalSize(275 * layout.scale, h * layout.scale));
   });
 
-  // Nativer Visualizer liegt über der LCD-Fläche (Skin-Position 25/43) – Lage und Bildrate melden.
+  // Nativer Visualizer liegt über der LCD-Fläche (Skin-Position 25/43) – Lage, Bildrate und
+  // Lautstärke (für den Ausgleich) melden. $derived: nur bei echten Änderungen neu senden.
+  const volume = $derived(player.status?.volume ?? 100);
   $effect(() => {
     const s = layout.scale;
-    if (player.live) ytm.visConfig(player.visFps, 25 * s, 43 * s, s).catch(() => {});
+    if (player.live) ytm.visConfig(player.visFps, 25 * s, 43 * s, s, volume).catch(() => {});
   });
 
   async function openLibrary() {

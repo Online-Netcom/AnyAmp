@@ -9,9 +9,11 @@ Wiedergabe ausschließlich über den offiziellen YT-Music-Player in deiner angem
 
 - Winamp-2-Oberfläche (Hauptfenster, Playlist-Editor, Media Library), skalierbar 1,5×–3×
 - Suche nach Songs, Alben, Playlists und Künstlern; Alben/Playlists komplett hinzufügen
+- Alben-Suche mit kompletter Diskografie, wenn der Begriff ein Künstler ist
+- Kuratierte YouTube-Music-Playlists in der Suche und unter „Genres“ (Stimmungen & Genres)
 - Eigene YT-Music-Playlists und „Musik, die ich mag“
 - Playlist mit Shuffle, Repeat und Autoplay (hängt am Ende passende Titel an)
-- Echter Spektrum-Visualizer mit 60 FPS und Winamp-Falloff (macOS: Core Audio Process Tap auf die eigene App)
+- Echter Spektrum-Visualizer mit 60 FPS und Winamp-Falloff, unabhängig von der Lautstärke (macOS: Core Audio Process Tap, nativ gezeichnet)
 
 ## Entwicklung
 

@@ -22,9 +22,11 @@ export interface Track {
 
 /** Album, Playlist oder Künstler – lässt sich öffnen bzw. komplett hinzufügen. */
 export interface Collection {
-  kind: 'album' | 'playlist' | 'artist';
+  kind: 'album' | 'playlist' | 'artist' | 'genre';
   browseId: string;
   playlistId: string | null;
+  /** Zusatzparameter der Seite (Genres) */
+  params?: string;
   title: string;
   artists: string[];
   subtitle: string;
@@ -96,7 +98,11 @@ export const ytm = {
   search: (query: string, kind: SearchKind) => call<Item[]>('search', { query, kind }),
   /** Inhalt eines Albums / einer Playlist (Tracks) bzw. eines Künstlers (Top-Songs + Alben) */
   open: (c: Collection) =>
-    call<{ items: Item[] }>('open', { browseId: c.browseId, playlistId: c.playlistId }, 90000).then((r) => r.items),
+    call<{ items: Item[] }>('open', { browseId: c.browseId, playlistId: c.playlistId, params: c.params }, 90000).then(
+      (r) => r.items,
+    ),
+  /** Genres und Stimmungen von YT Music; öffnen liefert deren kuratierte Playlists */
+  genres: () => call<Collection[]>('genres'),
   /** Eigene Playlists aus der YT-Music-Bibliothek (inkl. „Musik, die ich mag“) */
   library: () => call<Collection[]>('library'),
   /** Passende Titel zum Weiterhören (YT-Music-Radio) */
@@ -110,6 +116,7 @@ export const ytm = {
   login: () => invoke<void>('ytm_login'),
   setVisible: (visible: boolean) => invoke<void>('ytm_set_visible', { visible }),
   reload: () => invoke<void>('ytm_reload'),
-  /** Nativer Visualizer: Bildrate (0 = aus) und Lage im Fenster in Punkten */
-  visConfig: (fps: number, x: number, y: number, px: number) => invoke<void>('vis_config', { fps, x, y, px }),
+  /** Nativer Visualizer: Bildrate (0 = aus), Lage im Fenster in Punkten, Player-Lautstärke (Ausgleich) */
+  visConfig: (fps: number, x: number, y: number, px: number, volume: number) =>
+    invoke<void>('vis_config', { fps, x, y, px, volume }),
 };

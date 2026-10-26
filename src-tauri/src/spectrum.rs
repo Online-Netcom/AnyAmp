@@ -21,6 +21,19 @@ const FFT_SIZE: usize = 2048;
 
 /// Bildrate des Visualizers (Winamp: „Refresh rate“); 0 = aus.
 static FPS: AtomicU32 = AtomicU32::new(60);
+/// Player-Lautstärke in Prozent. Der Abgriff liegt hinter dem Lautstärkeregler –
+/// wie bei Winamp soll das Spektrum aber das Signal selbst zeigen, nicht die Lautstärke.
+static VOLUME: AtomicU32 = AtomicU32::new(100);
+
+pub fn set_volume(percent: u32) {
+    VOLUME.store(percent.min(100), Ordering::Relaxed);
+}
+
+/// Ausgleich in dB für die Player-Lautstärke (linear wie HTML-Media `volume`), höchstens +40 dB.
+fn volume_gain_db() -> f32 {
+    let v = VOLUME.load(Ordering::Relaxed);
+    if v == 0 { 0.0 } else { (-20.0 * (v as f32 / 100.0).log10()).min(40.0) }
+}
 
 /// Bildrate und Lage des Visualizers (Punkte ab oben links, `px` = Punkte je Skin-Pixel).
 pub fn configure(fps: u32, x: f64, y: f64, px: f64) {
@@ -105,7 +118,8 @@ impl Analyzer {
         }
     }
 
-    pub fn bars(&mut self, samples: &[f32], rate: f64) -> [u8; BARS] {
+    /// `gain_db` gleicht eine abgesenkte Lautstärke aus.
+    pub fn bars(&mut self, samples: &[f32], rate: f64, gain_db: f32) -> [u8; BARS] {
         debug_assert_eq!(samples.len(), FFT_SIZE);
         for (i, (s, w)) in samples.iter().zip(&self.window).enumerate() {
             self.scratch[i] = Complex::new(s * w, 0.0);
@@ -123,7 +137,7 @@ impl Analyzer {
             let i1 = ((f1 / bin_hz) as usize).max(i0 + 1).min(FFT_SIZE / 2);
             let peak = self.scratch[i0..i1].iter().map(|c| c.norm()).fold(0.0f32, f32::max);
             // Normierung: Vollaussteuerung eines Sinus ≈ FFT_SIZE/4 (Hann-Fenster)
-            let db = 20.0 * (peak / (FFT_SIZE as f32 / 4.0)).max(1e-9).log10();
+            let db = 20.0 * (peak / (FFT_SIZE as f32 / 4.0)).max(1e-9).log10() + gain_db;
             // -60 dB … 0 dB → 0 … 16, Höhen leicht anheben (wie Winamp)
             let tilt = b as f32 * 0.35;
             *slot = (((db + 60.0 + tilt) / 60.0) * 16.0).clamp(0.0, 16.0) as u8;
@@ -216,7 +230,7 @@ pub fn start() {
                 };
                 let target = match input {
                     Some(rate) => {
-                        let bars = analyzer.bars(&frame, rate);
+                        let bars = analyzer.bars(&frame, rate, volume_gain_db());
                         if !reported && bars.iter().any(|&b| b > 0) {
                             eprintln!("[spectrum] Signal erkannt ({rate} Hz)");
                             reported = true;
@@ -247,18 +261,27 @@ mod tests {
 
     #[test]
     fn stille_ergibt_null() {
-        assert_eq!(Analyzer::new().bars(&vec![0.0; FFT_SIZE], 48000.0), [0; BARS]);
+        assert_eq!(Analyzer::new().bars(&vec![0.0; FFT_SIZE], 48000.0, 20.0), [0; BARS]);
     }
 
     #[test]
     fn tiefer_ton_landet_links_hoher_rechts() {
         let mut a = Analyzer::new();
-        let low = a.bars(&sine(60.0, 48000.0, 0.8), 48000.0);
-        let high = a.bars(&sine(8000.0, 48000.0, 0.8), 48000.0);
+        let low = a.bars(&sine(60.0, 48000.0, 0.8), 48000.0, 0.0);
+        let high = a.bars(&sine(8000.0, 48000.0, 0.8), 48000.0, 0.0);
         let argmax = |b: [u8; BARS]| (0..BARS).max_by_key(|&i| b[i]).unwrap();
         assert!(argmax(low) <= 2, "{low:?}");
         assert!(argmax(high) >= 14, "{high:?}");
         assert!(low[argmax(low)] >= 14, "laut genug: {low:?}");
+    }
+
+    #[test]
+    fn leise_lautstaerke_wird_ausgeglichen() {
+        let mut a = Analyzer::new();
+        let full = a.bars(&sine(440.0, 48000.0, 0.5), 48000.0, 0.0);
+        // Lautstärke 25 %: Signal ein Viertel so stark, Ausgleich +12 dB
+        let quiet = a.bars(&sine(440.0, 48000.0, 0.125), 48000.0, -20.0 * 0.25f32.log10());
+        assert_eq!(full, quiet);
     }
 
     #[test]

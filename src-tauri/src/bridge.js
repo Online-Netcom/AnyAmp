@@ -257,11 +257,74 @@
   // der Track, meldet die Bridge „ended“ und AnyAmp spielt aus der eigenen Playlist weiter.
   let requested = null, requestedAt = 0;
 
+  // Vergleich ohne Groß-/Kleinschreibung und Akzente („tiesto“ = „Tiësto“)
+  const norm = (t) =>
+    t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const uniq = (items) => {
+    const seen = new Set();
+    return items.filter((i) => {
+      const k = i.videoId ?? i.browseId;
+      return !seen.has(k) && seen.add(k);
+    });
+  };
+
+  /** Alle Teilbäume zu einem Schlüssel (Tiefensuche, Dokumentreihenfolge). */
+  function findAll(node, key, out = []) {
+    if (!node || typeof node !== 'object') return out;
+    if (node[key]) out.push(node[key]);
+    else for (const v of Object.values(node)) findAll(v, key, out);
+    return out;
+  }
+
+  /** Künstlerseite vollständig: Top-Songs, „Alle Songs“ und die komplette Diskografie. */
+  async function artistPage(artistId) {
+    const res = await innertube('browse', { browseId: artistId });
+    const name = runsText(find(res, ['musicImmersiveHeaderRenderer', 'musicVisualHeaderRenderer'])?.title);
+    const withArtist = (i) => (i.artists.length || !name ? i : { ...i, artists: [name] });
+
+    const top = findAll(res, 'musicShelfRenderer')[0];
+    const topSongs = top ? collect(top.contents, (i) => i.videoId) : [];
+    const all = top?.bottomEndpoint?.browseEndpoint?.browseId;
+    const allSongs = all?.startsWith('VL')
+      ? [{ kind: 'playlist', browseId: all, playlistId: all.slice(2), title: `Alle Songs${name ? ` von ${name}` : ''}`, artists: [], subtitle: name, type: '', year: '', thumbnail: null }]
+      : [];
+
+    // „Alben“ und „Singles & EPs“: über den „Mehr“-Link der Diskografie komplett laden
+    const albums = [];
+    for (const shelf of findAll(res, 'musicCarouselShelfRenderer')) {
+      const more = shelf.header?.musicCarouselShelfBasicHeaderRenderer?.moreContentButton?.buttonRenderer
+        ?.navigationEndpoint?.browseEndpoint;
+      let items = collect(shelf.contents, (i) => i.kind === 'album');
+      if (pageType({ browseEndpoint: more }) === 'MUSIC_PAGE_TYPE_ARTIST_DISCOGRAPHY') {
+        const page = await innertube('browse', { browseId: more.browseId, params: decodeURIComponent(more.params ?? '') })
+          .catch(() => null);
+        const full = page ? collect(page, (i) => i.kind === 'album') : [];
+        if (full.length) items = full;
+      }
+      albums.push(...items.map(withArtist));
+    }
+    return { name, topSongs, allSongs, albums: uniq(albums) };
+  }
+
+  /** Genres und Stimmungen von YT Music (Seite „Stimmungen & Genres“). */
+  async function genres() {
+    const res = await innertube('browse', { browseId: 'FEmusic_moods_and_genres' });
+    const seen = new Set();
+    return findAll(res, 'musicNavigationButtonRenderer')
+      .map((b) => ({ b, e: b.clickCommand?.browseEndpoint }))
+      .filter(({ e }) => e?.params && !seen.has(e.params) && seen.add(e.params))
+      .map(({ b, e }) => ({
+        kind: 'genre', browseId: e.browseId, params: e.params, playlistId: null,
+        title: runsText(b.buttonText), artists: [], subtitle: '', type: '', year: '', thumbnail: null,
+      }));
+  }
+
   // Suchfilter von YT Music (Songs / Alben / Playlists / Künstler)
   const SEARCH_PARAMS = {
     songs: 'EgWKAQIIAWoMEA4QChADEAQQCRAF',
     albums: 'EgWKAQIYAWoMEA4QChADEAQQCRAF',
-    playlists: 'EgWKAQIoAWoMEA4QChADEAQQCRAF',
+    playlists: 'EgWKAQIoAWoMEA4QChADEAQQCRAF', // Community-Playlists
+    curated: 'EgeKAQQoADgBagwQDhAKEAMQBBAJEAU=', // Playlists von YouTube Music selbst
     artists: 'EgWKAQIgAWoMEA4QChADEAQQCRAF',
   };
 
@@ -269,10 +332,28 @@
     account,
     // Suche nach Kategorie (je ~20 Treffer; Folgeseiten lehnt die API für Web-Remix ab)
     async search({ query, kind = 'songs' }) {
-      const res = await innertube('search', { query, params: SEARCH_PARAMS[kind] });
-      const want = kind === 'songs' ? (i) => i.videoId : (i) => i.kind === kind.slice(0, -1);
-      return collect(res.contents, want);
+      const run = async (k) => {
+        const res = await innertube('search', { query, params: SEARCH_PARAMS[k] });
+        const want = k === 'songs' ? (i) => i.videoId : (i) => i.kind === (k === 'curated' ? 'playlist' : k.slice(0, -1));
+        return collect(res.contents, want);
+      };
+      if (kind === 'playlists') {
+        // Kuratierte YT-Music-Playlists zuerst, danach die der Community
+        const [curated, community] = await Promise.all([run('curated').catch(() => []), run('playlists')]);
+        return uniq([...curated, ...community]);
+      }
+      if (kind === 'albums') {
+        // Der Albenfilter liefert viel Beifang. Passt der Begriff auf einen Künstler,
+        // kommt dessen komplette Diskografie zuerst.
+        const [hits, artists] = await Promise.all([run('albums'), run('artists').catch(() => [])]);
+        const artist = artists.find((a) => norm(a.title) === norm(query));
+        if (!artist) return hits;
+        const page = await artistPage(artist.browseId).catch(() => null);
+        return uniq([...(page?.albums ?? []), ...hits]);
+      }
+      return run(kind);
     },
+    genres,
     // Eigene Playlists aus der Bibliothek des Kontos (inkl. „Mag ich“)
     async library() {
       const res = await innertube('browse', { browseId: 'FEmusic_liked_playlists' });
@@ -280,21 +361,25 @@
       return collect(res, (i) => i.kind === 'playlist' && !['RDPN', 'SE'].includes(i.playlistId));
     },
     // Album / Playlist / Künstler öffnen
-    async open({ browseId, playlistId }) {
+    async open({ browseId, playlistId, params }) {
+      if (browseId === 'FEmusic_moods_and_genres_category') {
+        // Genre/Stimmung: die Playlists von YT Music (kuratierte zuerst, wie auf der Seite)
+        const res = await innertube('browse', { browseId, params });
+        return { items: uniq(collect(res, (i) => i.kind === 'playlist')) };
+      }
       if (playlistId || browseId.startsWith('VL')) {
         return { items: await queue({ playlistId: playlistId ?? browseId.slice(2) }, 1000) };
       }
-      const res = await innertube('browse', { browseId });
       if (browseId.startsWith('MPRE')) {
+        const res = await innertube('browse', { browseId });
         // Album → zugehörige Audio-Playlist (OLAK5uy_…), dort stehen alle Interpreten pro Titel
         const id = JSON.stringify(res).match(/"playlistId":"(OLAK5uy_[\w-]+)"/)?.[1];
         const items = id ? await queue({ playlistId: id }, 500) : [];
         return { items: items.length ? items : collect(res, (i) => i.videoId) };
       }
-      // Künstler: Top-Songs, danach Alben und Singles
-      const songs = collect(res, (i) => i.videoId);
-      const albums = collect(res, (i) => i.kind === 'album');
-      return { items: [...songs, ...albums] };
+      // Künstler: „Alle Songs“, Top-Songs, danach Alben und Singles komplett
+      const page = await artistPage(browseId);
+      return { items: [...page.allSongs, ...page.topSongs, ...page.albums] };
     },
     // Autoplay: „Radio“ zum Titel, wie YT Music es selbst anhängt
     radio: ({ videoId }) => queue({ videoId, playlistId: `RDAMVM${videoId}`, params: 'wAEB' }, 50),

@@ -64,8 +64,9 @@ fn ytm_reload(webview: Webview, app: AppHandle) -> Result<(), String> {
 
 /// Visualizer: Bildrate (60 / 30 / 0 = aus) und Lage im Fenster (Punkte, Punkte je Skin-Pixel).
 #[tauri::command]
-fn vis_config(webview: Webview, fps: u32, x: f64, y: f64, px: f64) -> Result<(), String> {
+fn vis_config(webview: Webview, fps: u32, x: f64, y: f64, px: f64, volume: u32) -> Result<(), String> {
     require(&webview, MAIN)?;
+    spectrum::set_volume(volume);
     spectrum::configure(fps, x, y, px);
     Ok(())
 }
