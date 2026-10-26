@@ -8,6 +8,7 @@
   import { layout } from '$lib/layout.svelte';
   import { player } from '$lib/player.svelte';
   import { ui } from '$lib/ui.svelte';
+  import { updater } from '$lib/updater.svelte';
   import { ytm } from '$lib/ytm';
   import Main from '$lib/skin/Main.svelte';
   import Playlist from '$lib/skin/Playlist.svelte';
@@ -50,7 +51,15 @@
     if (ui.navigate) layout.library = true;
   });
 
-  onMount(() => player.init());
+  onMount(() => {
+    const stop = player.init();
+    // still nach Updates schauen, kurz nach dem Start
+    const t = player.live ? window.setTimeout(() => updater.check(true), 8000) : 0;
+    return () => {
+      stop();
+      clearTimeout(t);
+    };
+  });
 
   // Winamp-Tastenkürzel
   function keydown(e: KeyboardEvent) {

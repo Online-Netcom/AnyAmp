@@ -4,13 +4,13 @@
   import { getVersion } from '@tauri-apps/api/app';
   import { layout } from '$lib/layout.svelte';
   import { optionsMenu } from '$lib/menus';
+  import { updater } from '$lib/updater.svelte';
   import { player, formatTime } from '$lib/player.svelte';
   import { ytm } from '$lib/ytm';
   import Icon from './Icon.svelte';
   import Marquee from './Marquee.svelte';
   import Visualizer from './Visualizer.svelte';
 
-  let { checkUpdate }: { checkUpdate?: () => void } = $props();
 
   // Während des Ziehens lokale Position anzeigen statt der vom Player gemeldeten.
   let dragPos = $state<number | null>(null);
@@ -30,6 +30,7 @@
     if (!a.loggedIn) return 'BITTE BEI YOUTUBE MUSIC ANMELDEN';
     if (a.premium === false) return 'ANYAMP! BENOETIGT YOUTUBE PREMIUM';
     if (player.error) return player.error;
+    if (updater.message) return updater.message;
     const t = player.track;
     if (!t) return `ANYAMP! - ${a.name ?? 'YOUTUBE MUSIC PREMIUM'}`;
     return `${player.current + 1}. ${t.artists.join(', ')} - ${t.title} (${formatTime(player.duration)})`;
@@ -40,7 +41,7 @@
   if (player.live) getVersion().then((v) => (version = v));
 
   function options(e: MouseEvent) {
-    optionsMenu(e, { version, quit: () => win?.close(), checkUpdate });
+    optionsMenu(e, { version, quit: () => win?.close() });
   }
 
   const VIS = { spectrum: 'Spektrum', scope: 'Oszilloskop', off: 'aus' };

@@ -13,7 +13,10 @@ Wiedergabe ausschließlich über den offiziellen YT-Music-Player in deiner angem
 - Kuratierte YouTube-Music-Playlists in der Suche und unter „Genres“ (Stimmungen & Genres)
 - Eigene YT-Music-Playlists und „Musik, die ich mag“
 - Playlist mit Shuffle, Repeat und Autoplay (hängt am Ende passende Titel an)
-- Echter Spektrum-Visualizer mit 60 FPS und Winamp-Falloff, unabhängig von der Lautstärke (macOS: Core Audio Process Tap, nativ gezeichnet)
+- Like-Knopf, HOME (Mixe, Empfehlungen, Verlauf), Kontextmenüs, Drag & Drop, Suchvorschläge
+- Live-Liedtext mit hervorgehobener Zeile (LRCLIB), sonst Liedtext von YT Music
+- Media-Tasten, Windowshade, Immer im Vordergrund, Auto-Update
+- Echter Spektrum-Visualizer (oder Oszilloskop) mit 60 FPS und Winamp-Falloff, unabhängig von der Lautstärke (macOS: Core Audio Process Tap, nativ gezeichnet)
 
 ## Entwicklung
 
@@ -29,6 +32,18 @@ Den Visualizer bitte mit dem gebündelten App-Paket testen (im Dev-Modus ordnet 
 ```bash
 npm run tauri build -- --debug --bundles app
 ```
+
+## Veröffentlichen
+
+```bash
+./scripts/release.sh 0.0.4 notes.md
+```
+
+Setzt die Version, baut signiert, lädt Zip, Update-Paket und `latest.json` als GitHub-Release hoch.
+Installierte Versionen prüfen beim Start auf Updates (Optionsmenü → „Update installieren“).
+Der Signaturschlüssel liegt außerhalb des Repos unter `~/.tauri/anyamp-updater.key` – ohne ihn
+lassen sich keine Updates mehr ausliefern, also sicher aufbewahren.
+Lokale Release-Builds brauchen ihn ebenfalls (`TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/anyamp-updater.key)`).
 
 ## Aufbau
 

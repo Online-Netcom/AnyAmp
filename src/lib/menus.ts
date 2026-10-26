@@ -2,6 +2,7 @@
 import { layout, SCALES } from './layout.svelte';
 import { player, type VisMode } from './player.svelte';
 import { ui, type MenuEntry } from './ui.svelte';
+import { updater } from './updater.svelte';
 import { isTrack, ytm, type Collection, type Item, type Track } from './ytm';
 
 /** Alle Titel der Einträge – Alben/Playlists werden dafür geladen. */
@@ -156,7 +157,7 @@ function show(e: MouseEvent, t: Track, build: (liked: boolean | null) => MenuEnt
 
 
 /** Optionsmenü (Clutterbar „O“ oder Rechtsklick ins Hauptfenster) */
-export function optionsMenu(e: MouseEvent, extra: { version: string; quit: () => void; checkUpdate?: () => void }) {
+export function optionsMenu(e: MouseEvent, extra: { version: string; quit: () => void }) {
   const vis = (mode: VisMode, label: string): MenuEntry => ({
     label,
     checked: player.visMode === mode,
@@ -187,7 +188,9 @@ export function optionsMenu(e: MouseEvent, extra: { version: string; quit: () =>
     { label: 'Wiederholen', checked: player.repeat, action: () => player.toggleRepeat() },
     { label: 'Autoplay', checked: player.autoplay, action: () => player.toggleAutoplay() },
     'sep',
-    { label: 'Nach Updates suchen …', disabled: !extra.checkUpdate, action: extra.checkUpdate },
+    updater.available
+      ? { label: `Update ${updater.available.version} installieren`, action: () => updater.install() }
+      : { label: 'Nach Updates suchen …', disabled: !player.live, action: () => updater.check() },
     { label: `AnyAmp! ${extra.version}`, disabled: true },
     { label: 'Beenden', action: extra.quit },
   ]);

@@ -73,8 +73,13 @@ fn vis_config(webview: Webview, fps: u32, mode: String, x: f64, y: f64, px: f64,
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    // Auto-Update über GitHub-Releases (signiert), danach Neustart
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+    builder
         .setup(|app| {
             spectrum::start();
             let window = WebviewWindowBuilder::new(app, YTM, WebviewUrl::External(YTM_URL.parse().unwrap()))
