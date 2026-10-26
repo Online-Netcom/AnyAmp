@@ -7,6 +7,8 @@
   let {
     tracks,
     selected = $bindable(new Set<number>()),
+    dropAt = $bindable(-1),
+    dragging = $bindable(-1),
     current = -1,
     numbered = true,
     reorder,
@@ -17,6 +19,10 @@
   }: {
     tracks: Item[];
     selected?: Set<number>;
+    /** Einfügeposition beim Ziehen (0 … Länge), -1 = keine; wird als Linie angezeigt */
+    dropAt?: number;
+    /** Index der gerade gezogenen Zeile (Umsortieren), -1 = keine */
+    dragging?: number;
     current?: number;
     numbered?: boolean;
     reorder?: (from: number, to: number) => void;
@@ -49,7 +55,46 @@
   }
 
   let anchor = -1;
-  let dragFrom = -1;
+
+  /** Eigenes Zugbild: kompakt, rechts unterhalb des Mauszeigers – das Standardbild
+   *  (die ganze Zeile) läge genau über der Einfügelinie. */
+  function dragImage(e: DragEvent, li: HTMLElement, count: number) {
+    const g = document.createElement('div');
+    g.className = 'anyamp-ghost';
+    const label = document.createElement('span');
+    label.textContent = count > 1 ? `${count} Einträge` : (li.querySelector('.name')?.textContent ?? '');
+    g.appendChild(label);
+    li.parentElement!.appendChild(g); // im gezoomten Bereich, damit die Größe passt
+    e.dataTransfer?.setDragImage(g, 0, 0);
+    setTimeout(() => g.remove());
+  }
+
+  /** obere Zeilenhälfte → davor, untere → dahinter */
+  function over(e: DragEvent, i: number) {
+    if (!(reorder || (onDropItems && ui.drag))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dropAt = e.clientY - r.top < r.height / 2 ? i : i + 1;
+  }
+
+  function dropped(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const at = dropAt;
+    dropAt = -1;
+    if (at < 0) return;
+    if (ui.drag && onDropItems) {
+      onDropItems(at, ui.drag);
+      ui.drag = null;
+    } else if (reorder && dragging >= 0) {
+      // Position nach dem Herausnehmen: alles hinter `dragging` rückt eins nach vorn
+      const to = at > dragging ? at - 1 : at;
+      reorder(dragging, to);
+      selected = new Set([to]);
+    }
+    dragging = -1;
+  }
 
   function click(e: MouseEvent, i: number) {
     if (e.shiftKey && anchor >= 0) {
@@ -77,6 +122,8 @@
       class:cur={i === current}
       class:auto={isTrack(t) && t.auto && i > current}
       class:folder={!isTrack(t)}
+      class:drop-before={dropAt === i}
+      class:drop-after={dropAt === tracks.length && i === tracks.length - 1}
       title={r.tip}
       draggable={!!reorder || dragOut}
       onmousedown={(e) => {
@@ -86,27 +133,21 @@
       oncontextmenu={(e) => onContext?.(e, i)}
       ondblclick={() => onActivate(i)}
       ondragstart={(e) => {
-        dragFrom = i;
+        dragging = i;
         e.dataTransfer?.setData('text/plain', 'anyamp');
+        dragImage(e, e.currentTarget as HTMLElement, selected.has(i) && dragOut ? selected.size : 1);
         if (dragOut) {
           const pick = selected.has(i) ? [...selected].sort((a, b) => a - b) : [i];
           ui.drag = pick.map((k) => tracks[k]);
         }
       }}
-      ondragend={() => (ui.drag = null)}
-      ondragover={(e) => (reorder || (onDropItems && ui.drag)) && e.preventDefault()}
-      ondrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (ui.drag && onDropItems) {
-          onDropItems(i, ui.drag);
-          ui.drag = null;
-        } else if (reorder && dragFrom >= 0) {
-          reorder(dragFrom, i);
-          selected = new Set([i]);
-        }
-        dragFrom = -1;
+      ondragend={() => {
+        ui.drag = null;
+        dropAt = -1;
+        dragging = -1;
       }}
+      ondragover={(e) => over(e, i)}
+      ondrop={dropped}
     >
       <span class="name">{numbered ? `${i + 1}. ` : ''}{r.name}</span>
       <span class="dur">{r.right}</span>
@@ -136,6 +177,47 @@
   }
   .sel {
     background: var(--pl-selected-bg);
+  }
+  /* Zugbild: oben/links transparenter Abstand, damit die Einfügelinie frei bleibt */
+  :global(.anyamp-ghost) {
+    position: absolute;
+    top: -1000px;
+    left: 0;
+    padding: 10px 0 0 12px;
+  }
+  :global(.anyamp-ghost span) {
+    display: block;
+    max-width: 160px;
+    padding: 1px 4px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font: 9px/12px var(--pl-font);
+    color: var(--pl-current);
+    background: var(--pl-selected-bg);
+    box-shadow: 0 0 0 1px #000;
+  }
+  /* Einfügelinie beim Ziehen */
+  li {
+    position: relative;
+  }
+  .drop-before::before,
+  .drop-after::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--pl-current);
+    box-shadow: 0 0 3px var(--pl-current);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .drop-before::before {
+    top: -1px;
+  }
+  .drop-after::after {
+    bottom: -1px;
   }
   .cur {
     color: var(--pl-current);

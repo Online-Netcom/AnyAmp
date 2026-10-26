@@ -12,6 +12,8 @@
   let { onAdd, onClose }: { onAdd: () => void; onClose: () => void } = $props();
 
   let selected = $state(new Set<number>());
+  let dropAt = $state(-1);
+  let dragging = $state(-1);
 
   const total = $derived(player.playlist.reduce((s, t) => s + parseDuration(t.duration), 0));
   const selTime = $derived([...selected].reduce((s, i) => s + parseDuration(player.playlist[i]?.duration), 0));
@@ -73,10 +75,24 @@
   <div
     class="body inset"
     role="list"
-    ondragover={(e) => ui.drag && e.preventDefault()}
+    ondragover={(e) => {
+      // freie Fläche unter der Liste: ans Ende
+      e.preventDefault();
+      dropAt = player.playlist.length;
+    }}
+    ondragleave={(e) => {
+      if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) dropAt = -1;
+    }}
     ondrop={(e) => {
       e.preventDefault();
+      const at = dropAt;
+      dropAt = -1;
       if (ui.drag) dropped(player.playlist.length, ui.drag);
+      else if (at >= 0 && dragging >= 0) {
+        player.move(dragging, player.playlist.length - 1);
+        selected = new Set([player.playlist.length - 1]);
+      }
+      dragging = -1;
       ui.drag = null;
     }}
   >
@@ -84,6 +100,8 @@
       <TrackList
         tracks={player.playlist}
         bind:selected
+        bind:dropAt
+        bind:dragging
         current={player.current}
         reorder={(a, b) => player.move(a, b)}
         onDropItems={dropped}
