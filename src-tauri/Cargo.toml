@@ -1,6 +1,6 @@
 [package]
 name = "anyamp"
-version = "0.0.2"
+version = "0.0.3"
 description = "AnyAmp! – Winamp-Oberfläche für YouTube Music Premium"
 authors = ["you"]
 edition = "2024"
