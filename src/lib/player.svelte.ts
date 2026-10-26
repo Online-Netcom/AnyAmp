@@ -1,6 +1,6 @@
 // Player-Kern: eigene Playlist + Steuerung des YTM-Players (über die Bridge).
 import { isTauri } from '@tauri-apps/api/core';
-import { ytm, onBridge, type Account, type PlayerState, type Track } from './ytm';
+import { ytm, onBridge, type Account, type Collection, type LikeStatus, type PlayerState, type Track } from './ytm';
 
 const STORE_KEY = 'anyamp.player.v1';
 
@@ -11,7 +11,11 @@ interface Persisted {
   repeat: boolean;
   autoplay: boolean;
   visFps: number;
+  visMode: VisMode;
 }
+
+/** Winamp: Klick auf den Visualizer wechselt Spektrum → Oszilloskop → aus */
+export type VisMode = 'spectrum' | 'scope' | 'off';
 
 function load(): Partial<Persisted> {
   try {
@@ -34,9 +38,15 @@ class Player {
   repeat = $state(false);
   /** Am Playlist-Ende passende Titel anhängen (YT-Music-Radio) */
   autoplay = $state(true);
-  /** Visualizer-Bildrate (Winamp „Refresh rate“): 60, 30 oder 0 = aus */
+  /** Visualizer-Bildrate (Winamp „Refresh rate“): 60 oder 30 */
   visFps = $state(60);
+  visMode = $state<VisMode>('spectrum');
   stopped = $state(true);
+  /** „Mag ich“-Status des laufenden Songs */
+  liked = $state<LikeStatus>('INDIFFERENT');
+  /** eigene YT-Music-Playlists (Ziel für „Zu YT-Playlist hinzufügen“) */
+  ownPlaylists = $state<Collection[]>([]);
+  #likeFor: string | null = null;
 
   #history: number[] = [];
   #filling: Promise<void> | null = null;
@@ -55,7 +65,9 @@ class Player {
     this.shuffle = saved.shuffle ?? false;
     this.repeat = saved.repeat ?? false;
     this.autoplay = saved.autoplay ?? true;
-    this.visFps = saved.visFps ?? 60;
+    // ältere Einstellung: 0 FPS bedeutete „aus“
+    this.visFps = saved.visFps === 30 ? 30 : 60;
+    this.visMode = saved.visMode ?? (saved.visFps === 0 ? 'off' : 'spectrum');
   }
 
   #save() {
@@ -67,6 +79,7 @@ class Player {
         repeat: this.repeat,
         autoplay: this.autoplay,
         visFps: this.visFps,
+        visMode: this.visMode,
       };
       localStorage.setItem(STORE_KEY, JSON.stringify(data));
     } catch {}
@@ -78,12 +91,22 @@ class Player {
     const unlisten = onBridge({
       ready: (a) => {
         this.account = a;
-        if (a.loggedIn) ytm.setVisible(false);
+        if (a.loggedIn) {
+          ytm.setVisible(false);
+          this.loadOwnPlaylists();
+        }
       },
       state: (s) => {
         this.status = s;
+        if (s.videoId && s.videoId !== this.#likeFor) {
+          this.#likeFor = s.videoId;
+          this.liked = 'INDIFFERENT';
+          ytm.likeStatus(s.videoId).then((l) => s.videoId === this.#likeFor && (this.liked = l)).catch(() => {});
+        }
         if (s.state === 1 && s.videoId === this.track?.videoId) this.stopped = false;
       },
+      // Media-Tasten / Kontrollzentrum: Vor/Zurück in AnyAmps Playlist
+      media: (cmd) => (cmd === 'next' ? this.next() : this.prev()),
       ended: (videoId) => {
         if (videoId === this.track?.videoId) this.next(true);
       },
@@ -207,9 +230,61 @@ class Player {
     this.#save();
   }
 
-  /** Klick auf den Visualizer: 60 FPS → 30 FPS → aus */
+  /** Song liken bzw. Like entfernen (Standard: der laufende Song) */
+  async toggleLike(videoId = this.status?.videoId ?? this.track?.videoId) {
+    if (!videoId || !this.canPlay) return;
+    const on = videoId === this.#likeFor ? this.liked !== 'LIKE' : true;
+    const before = this.liked;
+    if (videoId === this.#likeFor) this.liked = on ? 'LIKE' : 'INDIFFERENT'; // sofort anzeigen
+    try {
+      const now = await ytm.like(videoId, on);
+      if (videoId === this.#likeFor) this.liked = now;
+    } catch (e) {
+      if (videoId === this.#likeFor) this.liked = before;
+      this.error = `LIKE: ${(e as Error).message}`;
+    }
+  }
+
+  /** Eigene, bearbeitbare Playlists (für das Kontextmenü) */
+  async loadOwnPlaylists() {
+    const mine = await ytm.library().catch(() => []);
+    const me = this.account?.name;
+    this.ownPlaylists = mine.filter((p) => p.playlistId?.startsWith('PL') && (!me || p.subtitle.includes(me)));
+  }
+
+  /** „Radio starten“: passende Titel direkt nach `index` einreihen */
+  async startRadio(index: number) {
+    const seed = this.playlist[index];
+    if (!seed) return;
+    try {
+      const tracks = await ytm.radio(seed.videoId);
+      const known = new Set(this.playlist.map((t) => t.videoId));
+      const fresh = tracks.filter((t) => !known.has(t.videoId)).slice(0, 25);
+      this.insert(index + 1, fresh.map((t) => ({ ...t, auto: true })));
+    } catch (e) {
+      this.error = `RADIO: ${(e as Error).message}`;
+    }
+  }
+
+  /** Titel an einer Stelle einfügen (Drag & Drop, Radio) */
+  insert(at: number, tracks: Track[]) {
+    if (!tracks.length) return;
+    const cur = this.track;
+    const list = [...this.playlist];
+    list.splice(at, 0, ...tracks);
+    this.playlist = list;
+    this.current = cur ? list.indexOf(cur) : -1;
+    this.#save();
+  }
+
+  /** Klick auf den Visualizer: Spektrum → Oszilloskop → aus */
   cycleVis() {
-    this.visFps = this.visFps === 60 ? 30 : this.visFps === 30 ? 0 : 60;
+    this.setVis(this.visMode === 'spectrum' ? 'scope' : this.visMode === 'scope' ? 'off' : 'spectrum');
+  }
+
+  setVis(mode: VisMode, fps = this.visFps) {
+    this.visMode = mode;
+    this.visFps = fps;
     this.#save();
   }
 

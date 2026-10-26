@@ -64,10 +64,10 @@ fn ytm_reload(webview: Webview, app: AppHandle) -> Result<(), String> {
 
 /// Visualizer: Bildrate (60 / 30 / 0 = aus) und Lage im Fenster (Punkte, Punkte je Skin-Pixel).
 #[tauri::command]
-fn vis_config(webview: Webview, fps: u32, x: f64, y: f64, px: f64, volume: u32) -> Result<(), String> {
+fn vis_config(webview: Webview, fps: u32, mode: String, x: f64, y: f64, px: f64, volume: u32) -> Result<(), String> {
     require(&webview, MAIN)?;
     spectrum::set_volume(volume);
-    spectrum::configure(fps, x, y, px);
+    spectrum::configure(fps, mode == "scope", x, y, px);
     Ok(())
 }
 
@@ -93,6 +93,18 @@ pub fn run() {
                     }
                 })
                 .build()?;
+            // Entwicklung: ANYAMP_PROBE=<datei.js> wertet ein Skript in der YTM-Sitzung aus
+            // (Ergebnisse erscheinen im Log). Nur im Debug-Build.
+            #[cfg(debug_assertions)]
+            if let Ok(path) = std::env::var("ANYAMP_PROBE") {
+                let w = window.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(12));
+                    if let Ok(js) = std::fs::read_to_string(path) {
+                        let _ = w.eval(js);
+                    }
+                });
+            }
             // AnyAmp-Fenster schließen beendet die App (das YTM-Fenster ist nur versteckt).
             if let Some(main) = app.get_webview_window(MAIN) {
                 spectrum::attach(&main);

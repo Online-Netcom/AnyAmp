@@ -17,10 +17,16 @@ use std::{
 use rustfft::{num_complex::Complex, FftPlanner};
 
 pub const BARS: usize = 19;
+/// Oszilloskop: eine Spalte je Skin-Pixel der 76 px breiten Fläche
+pub const SCOPE: usize = 76;
+/// So viele Samples zeigt das Oszilloskop (~11 ms bei 48 kHz, ähnlich Winamp)
+const SCOPE_SAMPLES: usize = 512;
 const FFT_SIZE: usize = 2048;
 
 /// Bildrate des Visualizers (Winamp: „Refresh rate“); 0 = aus.
 static FPS: AtomicU32 = AtomicU32::new(60);
+/// 0 = Spektrum, 1 = Oszilloskop
+static MODE: AtomicU32 = AtomicU32::new(0);
 /// Player-Lautstärke in Prozent. Der Abgriff liegt hinter dem Lautstärkeregler –
 /// wie bei Winamp soll das Spektrum aber das Signal selbst zeigen, nicht die Lautstärke.
 static VOLUME: AtomicU32 = AtomicU32::new(100);
@@ -36,9 +42,10 @@ fn volume_gain_db() -> f32 {
 }
 
 /// Bildrate und Lage des Visualizers (Punkte ab oben links, `px` = Punkte je Skin-Pixel).
-pub fn configure(fps: u32, x: f64, y: f64, px: f64) {
+pub fn configure(fps: u32, scope: bool, x: f64, y: f64, px: f64) {
     let fps = fps.min(120);
     FPS.store(fps, Ordering::Relaxed);
+    MODE.store(scope as u32, Ordering::Relaxed);
     #[cfg(target_os = "macos")]
     unsafe {
         native::anyamp_vis_layout(x, y, px, fps as i32)
@@ -60,6 +67,19 @@ pub fn attach(window: &tauri::WebviewWindow) {
 const BAR_FALL: f32 = 40.0; // Skin-Pixel pro Sekunde
 const PEAK_HOLD: f32 = 0.4; // Sekunden
 const PEAK_FALL: f32 = 14.0; // Skin-Pixel pro Sekunde
+
+/// Oszilloskop-Zeilen (0 = oben … 15 = unten) aus den letzten Samples, verstärkt um `gain` (linear).
+pub fn scope_rows(samples: &[f32], gain: f32) -> [u8; SCOPE] {
+    let mut rows = [8u8; SCOPE];
+    if samples.is_empty() {
+        return rows;
+    }
+    for (x, row) in rows.iter_mut().enumerate() {
+        let s = samples[x * samples.len() / SCOPE] * gain;
+        *row = (8.0 - s * 8.0).round().clamp(0.0, 15.0) as u8;
+    }
+    rows
+}
 
 /// Winamp-Falloff: Balken steigen sofort und fallen gleichmäßig, Spitzen halten kurz.
 #[derive(Default)]
@@ -158,6 +178,7 @@ mod native {
         pub fn anyamp_vis_attach(ns_window: *mut c_void);
         pub fn anyamp_vis_layout(x: f64, y: f64, px: f64, fps: i32);
         pub fn anyamp_vis_update(heights: *const u8, peaks: *const u8);
+        pub fn anyamp_vis_scope(rows: *const u8);
     }
 }
 
@@ -200,6 +221,7 @@ pub fn start() {
             let mut falloff = Falloff::default();
             let mut frame = vec![0f32; FFT_SIZE];
             let mut shown = ([0u8; BARS], [0u8; BARS]);
+            let mut shown_scope = [255u8; SCOPE];
             let mut starved = 0u32;
             let mut reported = false;
             let mut last = std::time::Instant::now();
@@ -215,6 +237,7 @@ pub fn start() {
                 last = now;
 
                 // Ohne neue Samples (Pause, Stopp) keine alten Daten wiederholen → Balken fallen
+                let scope = MODE.load(Ordering::Relaxed) == 1;
                 let input = {
                     let mut s = shared.lock().unwrap();
                     starved = if s.fresh == 0 { starved + 1 } else { 0 };
@@ -228,9 +251,25 @@ pub fn start() {
                         Some(s.rate)
                     }
                 };
+                let gain_db = volume_gain_db();
+
+                if scope {
+                    let rows = match input {
+                        Some(_) => scope_rows(&frame[FFT_SIZE - SCOPE_SAMPLES..], 10f32.powf(gain_db / 20.0)),
+                        None => [8; SCOPE],
+                    };
+                    if rows != shown_scope {
+                        shown_scope = rows;
+                        unsafe { native::anyamp_vis_scope(rows.as_ptr()) };
+                    }
+                    shown = ([255; BARS], [255; BARS]); // beim Zurückschalten neu zeichnen
+                    continue;
+                }
+                shown_scope = [255; SCOPE];
+
                 let target = match input {
                     Some(rate) => {
-                        let bars = analyzer.bars(&frame, rate, volume_gain_db());
+                        let bars = analyzer.bars(&frame, rate, gain_db);
                         if !reported && bars.iter().any(|&b| b > 0) {
                             eprintln!("[spectrum] Signal erkannt ({rate} Hz)");
                             reported = true;
@@ -282,6 +321,13 @@ mod tests {
         // Lautstärke 25 %: Signal ein Viertel so stark, Ausgleich +12 dB
         let quiet = a.bars(&sine(440.0, 48000.0, 0.125), 48000.0, -20.0 * 0.25f32.log10());
         assert_eq!(full, quiet);
+    }
+
+    #[test]
+    fn oszilloskop_mittellinie_und_ausschlag() {
+        assert_eq!(scope_rows(&[0.0; 512], 1.0), [8; SCOPE]);
+        let rows = scope_rows(&sine(480.0, 48000.0, 1.0)[..512], 1.0);
+        assert!(rows.iter().any(|&r| r == 0) && rows.iter().any(|&r| r == 15), "{rows:?}");
     }
 
     #[test]

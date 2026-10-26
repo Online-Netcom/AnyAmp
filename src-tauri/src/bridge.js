@@ -22,14 +22,19 @@
     return `SAPISIDHASH ${ts}_${[...hash].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
   }
 
-  async function innertube(endpoint, body = {}, query = '') {
+  // Die YT-Music-App (Android) bekommt zeitgenaue Liedtexte, das Web nicht – nur dafür genutzt.
+  const MOBILE = { clientName: 'ANDROID_MUSIC', clientVersion: '7.21.50' };
+
+  async function innertube(endpoint, body = {}, query = '', client = null) {
     const headers = {
       'Content-Type': 'application/json',
       'X-Goog-AuthUser': String(cfg('SESSION_INDEX') ?? 0),
       'X-Origin': location.origin,
-      'X-Youtube-Client-Name': String(cfg('INNERTUBE_CONTEXT_CLIENT_NAME') ?? 67),
-      'X-Youtube-Client-Version': String(cfg('INNERTUBE_CLIENT_VERSION') ?? ''),
     };
+    if (!client) {
+      headers['X-Youtube-Client-Name'] = String(cfg('INNERTUBE_CONTEXT_CLIENT_NAME') ?? 67);
+      headers['X-Youtube-Client-Version'] = String(cfg('INNERTUBE_CLIENT_VERSION') ?? '');
+    }
     const auth = await sapisidHash();
     if (auth) headers.Authorization = auth;
     const visitor = cfg('VISITOR_DATA');
@@ -38,13 +43,21 @@
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify({ context: cfg('INNERTUBE_CONTEXT'), ...body }),
+      body: JSON.stringify({ context: contextFor(client), ...body }),
     });
     if (!res.ok) {
       const msg = await res.json().then((j) => j?.error?.message, () => null);
       throw new Error(`${endpoint}: HTTP ${res.status}${msg ? ` – ${msg}` : ''}`);
     }
     return res.json();
+  }
+
+  function contextFor(client) {
+    const ctx = cfg('INNERTUBE_CONTEXT');
+    if (!client) return ctx;
+    // schlanker App-Kontext: Browser-Angaben (userAgent, platform …) lehnt die App-Schnittstelle ab
+    const { hl, gl, visitorData } = ctx.client;
+    return { client: { clientName: client.clientName, clientVersion: client.clientVersion, hl, gl, visitorData }, user: ctx.user };
   }
 
   /** Folgeseite anfordern (lange Playlists); Token stammen aus `continuationOf`. */
@@ -66,6 +79,13 @@
   };
   const artistsOf = (runs) =>
     (runs ?? []).filter((r) => pageType(r.navigationEndpoint) === 'MUSIC_PAGE_TYPE_ARTIST').map((r) => r.text);
+  /** browseId des ersten Laufs eines Seitentyps (Album/Künstler eines Songs, fürs Kontextmenü) */
+  const linkOf = (runs, type) =>
+    (runs ?? []).find((r) => pageType(r.navigationEndpoint) === type)?.navigationEndpoint.browseEndpoint.browseId ?? null;
+  const links = (runs) => ({
+    albumId: linkOf(runs, 'MUSIC_PAGE_TYPE_ALBUM'),
+    artistId: linkOf(runs, 'MUSIC_PAGE_TYPE_ARTIST'),
+  });
   // „Song • “ / „Album • “ usw. am Anfang ungefilterter Treffer entfernen
   const KIND_WORDS = /^(Song|Video|Album|Single|EP|Playlist|Künstler|Artist|Episode|Podcast)$/i;
   // Untertitel ohne Aufrufe/Likes – nur Interpret, Album, Jahr
@@ -92,6 +112,7 @@
       subtitle: info.filter((p) => p !== duration).join(' • '),
       duration,
       thumbnail: thumb(item.thumbnail),
+      ...links(cols[1]?.runs),
     };
   }
 
@@ -138,12 +159,36 @@
     }
     const tile = node.musicTwoRowItemRenderer;
     if (tile) {
-      const item = parseCollection(tile, [tile.title, tile.subtitle], tile.navigationEndpoint);
+      const item = parseCollection(tile, [tile.title, tile.subtitle], tile.navigationEndpoint) ?? parseTile(tile);
       if (item && want(item)) out.push(item);
       return out;
     }
     for (const v of Object.values(node)) collect(v, want, out);
     return out;
+  }
+
+  /** Kachel ohne Seite (Startseite): einzelner Song oder Mix (Watch-Playlist) */
+  function parseTile(tile) {
+    const nav = tile.navigationEndpoint ?? {};
+    const info = parts(tile.subtitle).filter((p) => !KIND_WORDS.test(p));
+    const artists = artistsOf(tile.subtitle?.runs);
+    if (nav.watchEndpoint?.videoId) {
+      return {
+        videoId: nav.watchEndpoint.videoId,
+        title: runsText(tile.title),
+        artists: artists.length ? artists : info.slice(0, 1),
+        subtitle: info.join(' • '),
+        duration: '',
+        thumbnail: thumb(tile.thumbnailRenderer),
+        ...links(tile.subtitle?.runs),
+      };
+    }
+    const playlistId = nav.watchPlaylistEndpoint?.playlistId;
+    if (!playlistId) return null;
+    return {
+      kind: 'playlist', browseId: `VL${playlistId}`, playlistId, title: runsText(tile.title),
+      artists: [], subtitle: info.join(' • '), type: '', year: '', thumbnail: thumb(tile.thumbnailRenderer),
+    };
   }
 
   /** Eintrag der Warteschlange (`next`: Album, Playlist, Radio) → Track */
@@ -158,6 +203,7 @@
       subtitle: info.join(' • '),
       duration: runsText(v.lengthText),
       thumbnail: thumb(v.thumbnail),
+      ...links(v.longBylineText?.runs),
     };
   }
 
@@ -329,6 +375,9 @@
   };
 
   const commands = {
+    // Entwicklung: rohe InnerTube-Antwort (siehe ANYAMP_PROBE in lib.rs)
+    _raw: async ({ endpoint, body, mobile, client }) =>
+      JSON.stringify(await innertube(endpoint, body, '', client ?? (mobile ? MOBILE : null))),
     account,
     // Suche nach Kategorie (je ~20 Treffer; Folgeseiten lehnt die API für Web-Remix ab)
     async search({ query, kind = 'songs' }) {
@@ -354,6 +403,62 @@
       return run(kind);
     },
     genres,
+    // Startseite: Abschnitte („Noch mal anhören“, Mixe …) samt Inhalt, dazu der Verlauf
+    async home() {
+      const body = { browseId: 'FEmusic_home' };
+      let res = await innertube('browse', body);
+      const shelves = [];
+      for (let page = 0; res && page < 4; page++) {
+        for (const shelf of findAll(res, 'musicCarouselShelfRenderer')) {
+          const title = runsText(shelf.header?.musicCarouselShelfBasicHeaderRenderer?.title);
+          const items = uniq(collect(shelf.contents, (i) => i.videoId || i.kind === 'album' || i.kind === 'playlist'));
+          if (title && items.length) shelves.push({ title, items });
+        }
+        const c = continuationOf(res.continuationContents ?? res.contents);
+        res = c ? await more('browse', body, c).catch(() => null) : null;
+      }
+      const history = await innertube('browse', { browseId: 'FEmusic_history' })
+        .then((r) => uniq(collect(r, (i) => i.videoId)))
+        .catch(() => []);
+      if (history.length) shelves.push({ title: 'Zuletzt gespielt', items: history });
+      return shelves;
+    },
+    // Suchvorschläge beim Tippen
+    async suggest({ input }) {
+      const res = await innertube('music/get_search_suggestions', { input });
+      return findAll(res, 'searchSuggestionRenderer').map((r) => runsText(r.suggestion)).slice(0, 8);
+    },
+    // „Mag ich“-Status (LIKE / INDIFFERENT / DISLIKE) des Songs
+    async likeStatus({ videoId }) {
+      const res = await innertube('next', { videoId });
+      return find(res, ['likeButtonRenderer'])?.likeStatus ?? 'INDIFFERENT';
+    },
+    // Song liken bzw. Like entfernen – landet in „Musik, die ich mag“
+    async like({ videoId, on }) {
+      await innertube(on ? 'like/like' : 'like/removelike', { target: { videoId } });
+      return on ? 'LIKE' : 'INDIFFERENT';
+    },
+    // Liedtext (statisch; YT Music liefert im Web keinen zeitgenauen Text)
+    async lyrics({ videoId }) {
+      const next = await innertube('next', { videoId });
+      const tab = findAll(next, 'tabRenderer').find(
+        (t) => pageType(t.endpoint) === 'MUSIC_PAGE_TYPE_TRACK_LYRICS',
+      );
+      const browseId = tab?.endpoint?.browseEndpoint?.browseId;
+      if (!browseId) return null;
+      const res = await innertube('browse', { browseId });
+      const shelf = find(res, ['musicDescriptionShelfRenderer']);
+      if (!shelf) return null;
+      return { text: runsText(shelf.description), source: runsText(shelf.footer) };
+    },
+    // Songs zu einer eigenen YT-Music-Playlist hinzufügen
+    async addToPlaylist({ playlistId, videoIds }) {
+      await innertube('browse/edit_playlist', {
+        playlistId,
+        actions: videoIds.map((addedVideoId) => ({ action: 'ACTION_ADD_VIDEO', addedVideoId, dedupeOption: 'DEDUPE_OPTION_SKIP' })),
+      });
+      return videoIds.length;
+    },
     // Eigene Playlists aus der Bibliothek des Kontos (inkl. „Mag ich“)
     async library() {
       const res = await innertube('browse', { browseId: 'FEmusic_liked_playlists' });
@@ -416,6 +521,27 @@
       }
     },
   };
+
+  // --- Media-Tasten / Kontrollzentrum ---
+  // WebKit meldet den YTM-Player an macOS („Now Playing“ mit Titel und Cover); Play/Pause
+  // steuern ihn direkt. Vor/Zurück gehören aber zu AnyAmps Playlist, nicht zu YTMs Warteschlange.
+  // Abgefangen am Prototyp, damit auch später registrierte Handler von YTM ersetzt werden.
+  const MS = window.MediaSession?.prototype;
+  if (MS?.setActionHandler) {
+    const ours = {
+      nexttrack: () => send({ type: 'media', cmd: 'next' }),
+      previoustrack: () => send({ type: 'media', cmd: 'prev' }),
+    };
+    const set = MS.setActionHandler;
+    MS.setActionHandler = function (action, handler) {
+      return set.call(this, action, action in ours ? ours[action] : handler);
+    };
+    for (const [action, handler] of Object.entries(ours)) {
+      try {
+        set.call(navigator.mediaSession, action, handler);
+      } catch {}
+    }
+  }
 
   // --- Statusmeldungen ---
 

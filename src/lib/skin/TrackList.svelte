@@ -1,6 +1,7 @@
 <script lang="ts">
   // Liste im Stil des Winamp-Playlist-Editors (Auswahl, Doppelklick, optional Drag & Drop).
   // Zeigt Titel und – in der Media Library – auch Alben, Playlists und Künstler.
+  import { ui } from '$lib/ui.svelte';
   import { isTrack, type Item } from '$lib/ytm';
 
   let {
@@ -9,6 +10,9 @@
     current = -1,
     numbered = true,
     reorder,
+    dragOut = false,
+    onDropItems,
+    onContext,
     onActivate,
   }: {
     tracks: Item[];
@@ -16,10 +20,15 @@
     current?: number;
     numbered?: boolean;
     reorder?: (from: number, to: number) => void;
+    /** Einträge lassen sich herausziehen (Media Library → Playlist) */
+    dragOut?: boolean;
+    /** hereingezogene Einträge an Position einfügen (Playlist) */
+    onDropItems?: (at: number, items: Item[]) => void;
+    onContext?: (e: MouseEvent, index: number) => void;
     onActivate: (index: number) => void;
   } = $props();
 
-  const KIND = { album: 'ALBUM', playlist: 'PLAYLIST', artist: 'KÜNSTLER', genre: 'GENRE' };
+  const KIND = { album: 'ALBUM', playlist: 'PLAYLIST', artist: 'KÜNSTLER', genre: 'GENRE', shelf: 'BEREICH' };
 
   function row(t: Item) {
     if (isTrack(t)) return { key: t.videoId, name: `${t.artists.join(', ')} - ${t.title}`, right: t.duration, tip: `${t.title} – ${t.subtitle}` };
@@ -69,14 +78,34 @@
       class:auto={isTrack(t) && t.auto && i > current}
       class:folder={!isTrack(t)}
       title={r.tip}
-      draggable={!!reorder}
-      onmousedown={(e) => click(e, i)}
+      draggable={!!reorder || dragOut}
+      onmousedown={(e) => {
+        // Rechtsklick auf eine Zeile außerhalb der Auswahl wählt nur diese aus
+        if (e.button !== 2 || !selected.has(i)) click(e, i);
+      }}
+      oncontextmenu={(e) => onContext?.(e, i)}
       ondblclick={() => onActivate(i)}
-      ondragstart={() => (dragFrom = i)}
-      ondragover={(e) => reorder && e.preventDefault()}
-      ondrop={() => {
-        reorder?.(dragFrom, i);
-        selected = new Set([i]);
+      ondragstart={(e) => {
+        dragFrom = i;
+        e.dataTransfer?.setData('text/plain', 'anyamp');
+        if (dragOut) {
+          const pick = selected.has(i) ? [...selected].sort((a, b) => a - b) : [i];
+          ui.drag = pick.map((k) => tracks[k]);
+        }
+      }}
+      ondragend={() => (ui.drag = null)}
+      ondragover={(e) => (reorder || (onDropItems && ui.drag)) && e.preventDefault()}
+      ondrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (ui.drag && onDropItems) {
+          onDropItems(i, ui.drag);
+          ui.drag = null;
+        } else if (reorder && dragFrom >= 0) {
+          reorder(dragFrom, i);
+          selected = new Set([i]);
+        }
+        dragFrom = -1;
       }}
     >
       <span class="name">{numbered ? `${i + 1}. ` : ''}{r.name}</span>

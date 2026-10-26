@@ -9,6 +9,7 @@
 #include <os/lock.h>
 
 #define BARS 19
+#define SCOPE 76 // Oszilloskop: eine Spalte je Skin-Pixel
 
 // VISCOLOR.TXT-Stil: Zeile 0 = oben (rot) … Zeile 15 = unten (grün)
 static const uint32_t COLORS[16] = {
@@ -23,6 +24,8 @@ static CGColorRef rgb(uint32_t c) {
 // Von Rust geschrieben, vom Display-Link gelesen
 static os_unfair_lock g_lock = OS_UNFAIR_LOCK_INIT;
 static uint8_t g_heights[BARS], g_peaks[BARS];
+static uint8_t g_scope[SCOPE]; // Zeile 0 (oben) … 15 (unten)
+static BOOL g_scopeMode = NO;
 static BOOL g_dirty = NO;
 static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update wecken
 
@@ -34,6 +37,8 @@ static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update w
     CALayer *_peaks[BARS];
     CAGradientLayer *_fills[BARS];
     CADisplayLink *_link;
+    CAShapeLayer *_scope;
+    BOOL _scopeShown;
     uint8_t _h[BARS], _p[BARS];
     CGFloat _px;
     int _idle;
@@ -76,6 +81,14 @@ static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update w
             [self.layer addSublayer:_peaks[i]];
         }
         CGColorRelease(peak);
+        // Oszilloskop: Pixel-Spalten als ein Pfad (Winamp „Lines“-Stil), hellgrau wie VISCOLOR
+        _scope = [CAShapeLayer layer];
+        CGColorRef osc = rgb(0xd6d6de);
+        _scope.fillColor = osc;
+        CGColorRelease(osc);
+        _scope.anchorPoint = CGPointZero;
+        _scope.hidden = YES;
+        [self.layer addSublayer:_scope];
         if ([self respondsToSelector:@selector(displayLinkWithTarget:selector:)]) {
             _link = [self displayLinkWithTarget:self selector:@selector(tick:)];
             [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
@@ -126,12 +139,14 @@ static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update w
 
 /// Übernimmt neue Höhen; YES, wenn sich etwas geändert hat.
 - (BOOL)apply {
-    uint8_t h[BARS], p[BARS];
+    uint8_t h[BARS], p[BARS], sc[SCOPE];
     os_unfair_lock_lock(&g_lock);
     BOOL dirty = g_dirty;
+    BOOL scope = g_scopeMode;
     g_dirty = NO;
     memcpy(h, g_heights, BARS);
     memcpy(p, g_peaks, BARS);
+    memcpy(sc, g_scope, SCOPE);
     os_unfair_lock_unlock(&g_lock);
     if (!dirty && _h[0] != 255) return NO;
 
@@ -139,6 +154,30 @@ static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update w
     CGFloat px = _px;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
+    if (scope != _scopeShown) {
+        _scopeShown = scope;
+        _scope.hidden = !scope;
+        for (int i = 0; i < BARS; i++) {
+            _cols[i].hidden = scope;
+            _peaks[i].hidden = scope || _p[i] == 0;
+        }
+    }
+    if (scope) {
+        // senkrechte Verbindung zum Nachbarpunkt, damit eine durchgehende Linie entsteht
+        CGMutablePathRef path = CGPathCreateMutable();
+        for (int x = 0; x < SCOPE; x++) {
+            int y = sc[x], prev = x ? sc[x - 1] : y;
+            int lo = MIN(y, prev), hi = MAX(y, prev);
+            if (hi - lo > 1) lo++, hi--; // nur die Lücke schließen
+            else lo = hi = y;
+            CGPathAddRect(path, NULL, CGRectMake(x * px, (15 - hi) * px, px, (hi - lo + 1) * px));
+        }
+        _scope.frame = self.bounds;
+        _scope.path = path;
+        CGPathRelease(path);
+        [CATransaction commit];
+        return YES;
+    }
     for (int i = 0; i < BARS; i++) {
         if (h[i] != _h[i]) {
             _h[i] = h[i];
@@ -147,7 +186,7 @@ static BOOL g_asleep = YES; // Display-Link pausiert → beim nächsten Update w
         }
         if (p[i] != _p[i]) {
             _p[i] = p[i];
-            _peaks[i].hidden = p[i] == 0;
+            _peaks[i].hidden = p[i] == 0 || scope;
             if (p[i]) _peaks[i].frame = CGRectMake(i * 4 * px, (p[i] - 1) * px, 3 * px, px);
             changed = YES;
         }
@@ -185,12 +224,31 @@ void anyamp_vis_layout(double x, double y, double px, int fps) {
     });
 }
 
+static void wake_if_asleep(void);
+
 /// Neue Balken- und Spitzenhöhen (0–16), aus beliebigem Thread.
 void anyamp_vis_update(const uint8_t *heights, const uint8_t *peaks) {
     os_unfair_lock_lock(&g_lock);
     memcpy(g_heights, heights, BARS);
     memcpy(g_peaks, peaks, BARS);
+    g_scopeMode = NO;
     g_dirty = YES;
+    os_unfair_lock_unlock(&g_lock);
+    wake_if_asleep();
+}
+
+/// Oszilloskop: 76 Zeilenwerte (0 = oben … 15 = unten), aus beliebigem Thread.
+void anyamp_vis_scope(const uint8_t *rows) {
+    os_unfair_lock_lock(&g_lock);
+    memcpy(g_scope, rows, SCOPE);
+    g_scopeMode = YES;
+    g_dirty = YES;
+    os_unfair_lock_unlock(&g_lock);
+    wake_if_asleep();
+}
+
+static void wake_if_asleep(void) {
+    os_unfair_lock_lock(&g_lock);
     BOOL wake = g_asleep;
     g_asleep = NO;
     os_unfair_lock_unlock(&g_lock);

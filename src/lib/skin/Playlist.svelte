@@ -1,6 +1,9 @@
 <script lang="ts">
   // Playlist-Editor (275×232 Skin-Pixel).
   import { player, formatTime, parseDuration } from '$lib/player.svelte';
+  import { playlistMenu, tracksOf } from '$lib/menus';
+  import { ui } from '$lib/ui.svelte';
+  import type { Item } from '$lib/ytm';
   import Icon from './Icon.svelte';
   import TrackList from './TrackList.svelte';
 
@@ -10,6 +13,15 @@
 
   const total = $derived(player.playlist.reduce((s, t) => s + parseDuration(t.duration), 0));
   const selTime = $derived([...selected].reduce((s, i) => s + parseDuration(player.playlist[i]?.duration), 0));
+
+  /** Aus der Media Library hereingezogen: an Position einfügen (Alben/Playlists komplett) */
+  async function dropped(at: number, items: Item[]) {
+    try {
+      player.insert(at, await tracksOf(items));
+    } catch (e) {
+      player.error = (e as Error).message;
+    }
+  }
 
   function removeSelected() {
     player.remove(selected);
@@ -38,17 +50,31 @@
     </button>
   </div>
 
-  <div class="body inset">
+  <div
+    class="body inset"
+    role="list"
+    ondragover={(e) => ui.drag && e.preventDefault()}
+    ondrop={(e) => {
+      e.preventDefault();
+      if (ui.drag) dropped(player.playlist.length, ui.drag);
+      ui.drag = null;
+    }}
+  >
     {#if player.playlist.length}
       <TrackList
         tracks={player.playlist}
         bind:selected
         current={player.current}
         reorder={(a, b) => player.move(a, b)}
+        onDropItems={dropped}
+        onContext={(e, i) => playlistMenu(e, i, selected.has(i) ? selected : new Set([i]), () => {
+          player.remove(selected.has(i) ? selected : new Set([i]));
+          selected = new Set();
+        })}
         onActivate={(i) => player.playIndex(i)}
       />
     {:else}
-      <p class="empty">Playlist leer – mit <b>+ADD</b> Songs und Alben suchen</p>
+      <p class="empty">Playlist leer – mit <b>+ADD</b> suchen oder aus der Media Library hierher ziehen</p>
     {/if}
   </div>
 

@@ -9,10 +9,12 @@
     eject: 'M4.5 0l4.5 5H0zM0 6h9v2H0z',
     close: 'M1 1l7 7M8 1l-7 7',
     min: 'M1 7h7',
+    shade: 'M1 2h7M1 7h7',
+    unshade: 'M1 1h7v6H1z',
   } as const;
 
   let { name, size = 9, color = 'currentColor' }: { name: keyof typeof paths; size?: number; color?: string } = $props();
-  const stroke = $derived(name === 'close' || name === 'min');
+  const stroke = $derived(['close', 'min', 'shade', 'unshade'].includes(name));
 </script>
 
 <svg width={size} height={(size * 8) / 9} viewBox="0 0 9 8" aria-hidden="true">

@@ -1,32 +1,37 @@
 <script lang="ts">
-  // „Media Library“: Suche in YouTube Music nach Songs, Alben, Playlists und Künstlern.
-  // Alben/Playlists/Künstler lassen sich öffnen (Doppelklick) oder komplett hinzufügen.
+  // „Media Library“: Startseite von YT Music, Genres und Suche nach Songs, Alben, Playlists, Künstlern.
+  // Alben/Playlists/Künstler lassen sich öffnen (Doppelklick) oder komplett hinzufügen;
+  // Rechtsklick öffnet das Kontextmenü, Einträge lassen sich in die Playlist ziehen.
   import { player, formatTime, parseDuration } from '$lib/player.svelte';
-  import { ytm, isTrack, type Collection, type Item, type SearchKind, type Track } from '$lib/ytm';
+  import { libraryMenu, tracksOf } from '$lib/menus';
+  import { ui } from '$lib/ui.svelte';
+  import { ytm, isTrack, type Collection, type Item, type SearchKind } from '$lib/ytm';
   import Icon from './Icon.svelte';
   import TrackList from './TrackList.svelte';
 
   let { onClose }: { onClose: () => void } = $props();
 
-  type Tab = SearchKind | 'mine' | 'genres';
+  type Tab = SearchKind | 'home' | 'genres';
   const TABS: [Tab, string][] = [
-    ['mine', 'MEINE'],
+    ['home', 'HOME'],
     ['genres', 'GENRES'],
     ['songs', 'SONGS'],
     ['albums', 'ALBEN'],
     ['playlists', 'PLAYLISTS'],
     ['artists', 'KÜNSTLER'],
   ];
+  const BROWSE: Tab[] = ['home', 'genres'];
 
   let query = $state('');
-  let kind = $state<Tab>('songs');
+  let kind = $state<Tab>('home');
   let results = $state<Item[]>([]);
-  /** Geöffnete Alben/Playlists/Künstler (Zurück = eine Ebene hoch) */
+  /** Geöffnete Seiten (Zurück = eine Ebene hoch) */
   let stack = $state<{ source: Collection; items: Item[] }[]>([]);
   let selected = $state(new Set<number>());
   let busy = $state(false);
   let message = $state('');
   let input = $state<HTMLInputElement>();
+  let suggestions = $state<string[]>([]);
   let searched = '';
   const cache = new Map<string, Item[]>();
 
@@ -53,92 +58,106 @@
     }
   }
 
-  async function search(e?: Event) {
-    e?.preventDefault();
-    const q = query.trim();
-    // Suchen aus „Meine“/„Genres“ heraus → Songs
-    if ((kind === 'mine' || kind === 'genres') && e) kind = 'songs';
-    if (kind === 'mine') return loadMine();
-    if (kind === 'genres') return loadGenres();
-    if (!q || !player.live) return;
-    const k = kind;
-    const key = `${k}:${q}`;
+  /** Liste laden (zwischengespeichert), verworfen wenn inzwischen ein anderer Tab/Begriff gilt */
+  async function load(key: string, still: () => boolean, fetch: () => Promise<Item[]>, empty: string) {
     stack = [];
     selected = new Set();
-    searched = q;
     if (cache.has(key)) {
       results = cache.get(key)!;
       return;
     }
     results = [];
     await busyWith(async () => {
-      const found = await ytm.search(q, k);
+      const found = await fetch();
       cache.set(key, found);
-      if (kind === k && q === searched) results = found; // inzwischen anderer Tab/Begriff → verwerfen
-      if (!found.length) message = 'Keine Treffer';
+      if (still()) results = found;
+      if (!found.length) message = empty;
     });
+  }
+
+  async function search(e?: Event) {
+    e?.preventDefault();
+    suggestions = [];
+    const q = query.trim();
+    if (BROWSE.includes(kind) && e) kind = 'songs'; // Suchen aus Home/Genres heraus → Songs
+    if (!player.live) return;
+    if (kind === 'home') return loadHome();
+    if (kind === 'genres') return load('genres', () => kind === 'genres', ytm.genres, 'Keine Genres');
+    if (!q) return;
+    const k = kind;
+    searched = q;
+    await load(`${k}:${q}`, () => kind === k && q === searched, () => ytm.search(q, k), 'Keine Treffer');
+  }
+
+  /** Startseite: „Meine Playlists“, dann die Abschnitte von YT Music und der Verlauf */
+  function loadHome() {
+    return load('home', () => kind === 'home', async () => {
+      const shelves = await ytm.home();
+      const mine: Collection = {
+        kind: 'shelf', browseId: 'library', playlistId: null, title: 'Meine Playlists',
+        artists: [], subtitle: 'Deine Playlists und „Musik, die ich mag“', type: '', year: '', thumbnail: null,
+      };
+      return [
+        mine,
+        ...shelves.map((s, i): Collection => ({
+          kind: 'shelf', browseId: `home:${i}`, playlistId: null, title: s.title, items: s.items,
+          artists: [], subtitle: `${s.items.length} Einträge`, type: '', year: '', thumbnail: null,
+        })),
+      ];
+    }, 'Startseite leer');
   }
 
   function setKind(k: Tab) {
     if (k === kind && !stack.length) return;
     kind = k;
-    if (k === 'mine' || k === 'genres' || query.trim()) search();
+    if (BROWSE.includes(k) || query.trim()) search();
     else {
       stack = [];
       results = [];
     }
   }
 
-  /** Eigene Playlists des Kontos – immer frisch, Änderungen in YT Music sollen sofort sichtbar sein */
-  async function loadMine() {
-    stack = [];
-    selected = new Set();
-    results = [];
-    await busyWith(async () => {
-      const mine = await ytm.library();
-      if (kind === 'mine') results = mine;
-      if (!mine.length) message = 'Keine eigenen Playlists';
-    });
-  }
-
-  /** Genres und Stimmungen von YT Music – ändern sich selten, daher zwischengespeichert */
-  async function loadGenres() {
-    stack = [];
-    selected = new Set();
-    if (cache.has('genres')) {
-      results = cache.get('genres')!;
-      return;
-    }
-    results = [];
-    await busyWith(async () => {
-      const list = await ytm.genres();
-      cache.set('genres', list);
-      if (kind === 'genres') results = list;
-    });
+  // Vorschläge beim Tippen (verzögert, nur der jeweils letzte zählt)
+  let suggestTimer = 0;
+  function typed() {
+    clearTimeout(suggestTimer);
+    const q = query.trim();
+    if (q.length < 2 || !player.live) return (suggestions = []);
+    suggestTimer = window.setTimeout(async () => {
+      const list = await ytm.suggest(q).catch(() => []);
+      if (query.trim() === q) suggestions = list.filter((s) => s.toLowerCase() !== q.toLowerCase());
+    }, 200);
   }
 
   async function open(c: Collection) {
     await busyWith(async () => {
-      const found = await ytm.open(c);
+      const found =
+        c.kind === 'shelf' ? (c.browseId === 'library' ? await ytm.library() : (c.items ?? [])) : await ytm.open(c);
       stack = [...stack, { source: c, items: found }];
       selected = new Set();
       if (!found.length) message = 'Leer';
     });
   }
 
+  // Beim Öffnen gleich die Startseite zeigen, sobald das Konto bereit ist
+  let homeShown = false;
+  $effect(() => {
+    if (homeShown || !player.account?.loggedIn || player.account.premium === false) return;
+    homeShown = true;
+    if (kind === 'home' && !stack.length) loadHome();
+  });
+
+  // „Gehe zu Album/Künstler“ aus einem Kontextmenü
+  $effect(() => {
+    const c = ui.navigate;
+    if (!c) return;
+    ui.navigate = null;
+    open(c);
+  });
+
   function back() {
     stack = stack.slice(0, -1);
     selected = new Set();
-  }
-
-  /** Alle Titel der Einträge – Alben/Playlists werden dafür geladen. */
-  async function tracksOf(list: Item[]) {
-    const out: Track[] = [];
-    for (const it of list) {
-      if (isTrack(it)) out.push(it);
-      else if (it.kind === 'album' || it.kind === 'playlist') out.push(...(await ytm.open(it)).filter(isTrack));
-    }
-    return out;
   }
 
   async function add(play: boolean) {
@@ -189,7 +208,9 @@
     if (!view) return '';
     const c = view.source;
     const by = c.artists.join(', ');
-    return c.kind === 'artist' || c.kind === 'genre' ? c.title : `${c.title}${by ? ` – ${by}` : ''}${c.year ? ` (${c.year})` : ''}`;
+    return c.kind === 'album' || c.kind === 'playlist'
+      ? `${c.title}${by ? ` – ${by}` : ''}${c.year ? ` (${c.year})` : ''}`
+      : c.title;
   });
 
   const account = $derived(player.account);
@@ -215,7 +236,18 @@
     <p class="note warn">AnyAmp! benötigt ein aktives YouTube-Premium- bzw. Music-Premium-Abo.</p>
   {:else}
     <form onsubmit={search}>
-      <input bind:this={input} bind:value={query} placeholder="YouTube Music durchsuchen …" spellcheck="false" />
+      <input
+        bind:this={input}
+        bind:value={query}
+        oninput={typed}
+        list="ml-suggest"
+        placeholder="YouTube Music durchsuchen …"
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <datalist id="ml-suggest">
+        {#each suggestions as s (s)}<option value={s}></option>{/each}
+      </datalist>
       <button class="btn go skin-text" disabled={busy}>SUCHE</button>
     </form>
 
@@ -231,7 +263,14 @@
     </div>
 
     <div class="body inset">
-      <TrackList tracks={items} bind:selected numbered={!!view && (view.source.kind === 'album' || view.source.kind === 'playlist')} onActivate={activate} />
+      <TrackList
+        tracks={items}
+        bind:selected
+        numbered={!!view && (view.source.kind === 'album' || view.source.kind === 'playlist')}
+        dragOut
+        onContext={(e, i) => libraryMenu(e, items[i], chosen, open)}
+        onActivate={activate}
+      />
     </div>
 
     <div class="bottom">

@@ -1,25 +1,16 @@
 <script lang="ts">
   // Hauptfenster im Winamp-2-Layout (275×116 Skin-Pixel).
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { getVersion } from '@tauri-apps/api/app';
+  import { layout } from '$lib/layout.svelte';
+  import { optionsMenu } from '$lib/menus';
   import { player, formatTime } from '$lib/player.svelte';
   import { ytm } from '$lib/ytm';
   import Icon from './Icon.svelte';
   import Marquee from './Marquee.svelte';
   import Visualizer from './Visualizer.svelte';
 
-  let {
-    scale,
-    playlistOpen,
-    onToggleScale,
-    onTogglePlaylist,
-    onOpenLibrary,
-  }: {
-    scale: number;
-    playlistOpen: boolean;
-    onToggleScale: () => void;
-    onTogglePlaylist: () => void;
-    onOpenLibrary: () => void;
-  } = $props();
+  let { checkUpdate }: { checkUpdate?: () => void } = $props();
 
   // Während des Ziehens lokale Position anzeigen statt der vom Player gemeldeten.
   let dragPos = $state<number | null>(null);
@@ -45,27 +36,67 @@
   });
 
   const win = player.live ? getCurrentWindow() : null;
+  let version = $state('');
+  if (player.live) getVersion().then((v) => (version = v));
+
+  function options(e: MouseEvent) {
+    optionsMenu(e, { version, quit: () => win?.close(), checkUpdate });
+  }
+
+  const VIS = { spectrum: 'Spektrum', scope: 'Oszilloskop', off: 'aus' };
 </script>
 
-<div class="main panel">
-  <div class="titlebar" data-tauri-drag-region>
-    <button class="btn wbtn" style="left:6px" title="Über AnyAmp!" aria-label="Über AnyAmp!">
+{#snippet winButtons()}
+  <button class="btn wbtn" style="left:244px" title="Windowshade (Doppelklick auf die Titelleiste)" onclick={() => (layout.shade = !layout.shade)}>
+    <Icon name={layout.shade ? 'unshade' : 'shade'} size={7} />
+  </button>
+  <button class="btn wbtn" style="left:254px" title="Minimieren" onclick={() => win?.minimize()}>
+    <Icon name="min" size={7} />
+  </button>
+  <button class="btn wbtn" style="left:264px" title="Beenden" onclick={() => win?.close()}>
+    <Icon name="close" size={7} />
+  </button>
+{/snippet}
+
+{#if layout.shade}
+  <!-- Windowshade: schmale Leiste mit Mini-Transport, Zeit und Position -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="main shade panel" oncontextmenu={options}>
+    <div class="titlebar" data-tauri-drag-region ondblclick={() => (layout.shade = false)}>
+      <button class="btn wbtn" style="left:6px" title="Optionen" onclick={options}>
+        <span class="skin-text" style="font-size:7px">A</span>
+      </button>
+      <div class="mini">
+        <button title="Zurück" onclick={() => player.prev()}><Icon name="prev" size={6} /></button>
+        <button title="Abspielen" onclick={() => player.play()}><Icon name="play" size={6} /></button>
+        <button title="Pause" onclick={() => player.pause()}><Icon name="pause" size={6} /></button>
+        <button title="Stopp" onclick={() => player.stop()}><Icon name="stop" size={6} /></button>
+        <button title="Weiter" onclick={() => player.next()}><Icon name="next" size={6} /></button>
+        <button title="Suchen" onclick={layout.openLibrary}><Icon name="eject" size={6} /></button>
+      </div>
+      <span class="stime skin-text" class:blink={player.mode === 2}>{player.mode === 0 ? '' : clock}</span>
+      <div class="sbar" title={title}><Marquee text={title} width={84} /></div>
+      {@render winButtons()}
+    </div>
+  </div>
+{:else}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="main panel" oncontextmenu={options}>
+  <div class="titlebar" data-tauri-drag-region ondblclick={() => (layout.shade = true)}>
+    <button class="btn wbtn" style="left:6px" title="Optionen" aria-label="Optionen" onclick={options}>
       <span class="skin-text" style="font-size:7px">A</span>
     </button>
     <span class="label skin-text">AnyAmp!</span>
-    <button class="btn wbtn" style="left:254px" title="Minimieren" onclick={() => win?.minimize()}>
-      <Icon name="min" size={7} />
-    </button>
-    <button class="btn wbtn" style="left:264px" title="Beenden" onclick={() => win?.close()}>
-      <Icon name="close" size={7} />
-    </button>
+    {@render winButtons()}
   </div>
 
   <!-- Clutterbar -->
   <div class="clutter skin-text">
-    <span>O</span><span>A</span><span>I</span>
-    <button class="on" title="Größe {scale}× – klicken für nächste Stufe (⌘D, ⌘+ / ⌘−)" onclick={onToggleScale}>D</button>
-    <span>V</span>
+    <button title="Optionen" onclick={options}>O</button>
+    <button class:on={layout.onTop} title="Immer im Vordergrund" onclick={() => (layout.onTop = !layout.onTop)}>A</button>
+    <button class:on={layout.lyrics} title="Liedtext (I)" onclick={() => (layout.lyrics = !layout.lyrics)}>I</button>
+    <button class="on" title="Größe {layout.scale}× – klicken für nächste Stufe (⌘D, ⌘+ / ⌘−)" onclick={() => layout.resize()}>D</button>
+    <button class:on={player.visMode !== 'off'} title="Visualizer: {VIS[player.visMode]} – klicken zum Umschalten" onclick={() => player.cycleVis()}>V</button>
   </div>
 
   <!-- LCD: Status, Zeit, Visualizer -->
@@ -81,7 +112,7 @@
     </div>
     <button
       class="vis"
-      title="Visualizer: {player.visFps ? `${player.visFps} FPS` : 'aus'} – klicken zum Umschalten"
+      title="Visualizer: {VIS[player.visMode]} – klicken zum Umschalten (Rechtsklick: Optionen)"
       onclick={() => player.cycleVis()}
     ><Visualizer /></button>
   </div>
@@ -119,7 +150,7 @@
   <input class="slider balance" type="range" min="-100" max="100" value="0" disabled title="Balance (folgt mit dem EQ)" />
 
   <button class="btn toggle skin-text" style="left:219px" disabled title="Equalizer (folgt)">EQ</button>
-  <button class="btn toggle skin-text" class:lit={playlistOpen} style="left:242px" title="Playlist-Editor" onclick={onTogglePlaylist}>PL</button>
+  <button class="btn toggle skin-text" class:lit={layout.playlist} style="left:242px" title="Playlist-Editor" onclick={() => (layout.playlist = !layout.playlist)}>PL</button>
 
   <!-- Positionsbalken -->
   <input
@@ -144,7 +175,7 @@
     <button class="btn" style="left:62px" title="Pause (C)" onclick={() => player.pause()}><Icon name="pause" /></button>
     <button class="btn" style="left:85px" title="Stopp (V)" onclick={() => player.stop()}><Icon name="stop" /></button>
     <button class="btn" style="left:108px;width:22px" title="Weiter (B)" onclick={() => player.next()}><Icon name="next" /></button>
-    <button class="btn eject" title="Suchen / hinzufügen (L)" onclick={onOpenLibrary}><Icon name="eject" /></button>
+    <button class="btn eject" title="Suchen / hinzufügen (L)" onclick={layout.openLibrary}><Icon name="eject" /></button>
   </div>
 
   <button class="btn sw skin-text" style="left:164px;width:47px" title="Zufallswiedergabe (S)" onclick={() => player.toggleShuffle()}>
@@ -157,9 +188,16 @@
   {#if player.account && !player.account.loggedIn}
     <button class="btn login skin-text" onclick={() => ytm.login()}>ANMELDEN</button>
   {:else}
-    <div class="logo skin-text" title="AnyAmp!">A!</div>
+    <button
+      class="like"
+      class:on={player.liked === 'LIKE'}
+      disabled={!player.status?.videoId}
+      title={player.liked === 'LIKE' ? 'Mag ich nicht mehr (F)' : 'Mag ich – zu „Musik, die ich mag“ hinzufügen (F)'}
+      onclick={() => player.toggleLike()}
+    >♥</button>
   {/if}
 </div>
+{/if}
 
 <style>
   .main {
@@ -353,19 +391,77 @@
     background: var(--led-on);
   }
 
-  .logo {
+  .like {
+    all: unset;
     position: absolute;
-    left: 248px;
-    top: 92px;
-    width: 18px;
-    height: 13px;
-    line-height: 13px;
+    left: 247px;
+    top: 90px;
+    width: 20px;
+    height: 15px;
     text-align: center;
-    color: #f0c020;
-    font-weight: 700;
-    font-size: 8px;
+    font: 13px/15px var(--pl-font);
+    color: #4a2a36;
     text-shadow: 1px 1px 0 #000;
   }
+  .like:hover:not(:disabled) {
+    color: #8a3a52;
+  }
+  .like.on {
+    color: #ff3c5a;
+    text-shadow: 0 0 4px #ff3c5a88, 1px 1px 0 #000;
+  }
+  .like:disabled {
+    opacity: 0.4;
+  }
+
+  .shade {
+    height: 14px;
+  }
+  .shade .titlebar {
+    height: 14px;
+  }
+  .mini {
+    position: absolute;
+    left: 168px;
+    top: 3px;
+    display: flex;
+    gap: 1px;
+  }
+  .mini button {
+    all: unset;
+    width: 9px;
+    height: 8px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(var(--btn-hi), var(--btn-lo));
+    box-shadow: 0 0 0 1px #000;
+  }
+  .mini button:active {
+    background: linear-gradient(var(--btn-lo), var(--btn-hi));
+  }
+  .stime {
+    position: absolute;
+    left: 130px;
+    top: 4px;
+    width: 30px;
+    padding: 1px 2px;
+    background: #000;
+    color: var(--lcd-text);
+    font-size: 6px;
+    text-align: center;
+  }
+  .sbar {
+    position: absolute;
+    left: 20px;
+    top: 3px;
+    width: 104px;
+    height: 8px;
+    padding: 1px 2px 0;
+    box-sizing: border-box;
+    background: #000;
+    overflow: hidden;
+  }
+
   .login {
     left: 242px;
     top: 89px;
