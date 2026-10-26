@@ -314,6 +314,60 @@
     });
   };
 
+  // --- Relevanz ---
+  // YT Music sortiert schon grob nach Relevanz, mischt aber viel Beifang dazu (Cover, Karaoke,
+  // „slowed“, gleichnamige Fremdtitel). Daher: Treffer nach Übereinstimmung mit dem Suchbegriff
+  // bewerten, YTMs Reihenfolge nur noch als Gleichstand-Entscheidung, Unpassendes aussortieren.
+  const tokens = (t) => norm(t).split(' ').filter(Boolean);
+  const NOISE_WORDS = [
+    'karaoke', 'cover', 'covers', 'tribute', 'instrumental', 'nightcore', 'slowed', 'reverb', 'sped up', '8d',
+    '8 bit', 'chiptune', 'acapella', 'a cappella', 'lofi', 'lo fi', 'piano version', 'made famous',
+    'in the style of', 'originally performed', 'originally by', 'not daft punk', 'music box', 'lullaby',
+  ];
+
+  function relevance(query, item, rank) {
+    const q = tokens(query);
+    const nq = norm(query);
+    const title = norm(item.title);
+    const artists = (item.artists ?? []).map(norm);
+    const sub = norm(item.subtitle ?? '');
+    const has = (text, t) => ` ${text} `.includes(` ${t} `) || (t.length > 3 && text.includes(t));
+    // Treffer in Titel/Interpret zählen voll, im Untertitel (Album) nur wenig
+    const main = `${title} ${artists.join(' ')}`;
+    const strong = q.filter((t) => has(main, t)).length;
+    const weak = q.filter((t) => !has(main, t) && has(sub, t)).length;
+    let score = ((strong + weak * 0.3) / Math.max(1, q.length)) * 60;
+    if (title === nq) score += 30;
+    // Interpret im Suchbegriff – nicht, wenn schon der Titel genau passt (sonst schlägt z. B. eine
+    // Band namens „Discovery“ Daft Punks gleichnamiges Album)
+    else if (artists.some((a) => a && ` ${nq} `.includes(` ${a} `))) {
+      score += 15;
+      if (artists.some((a) => a === nq)) score += 15; // Suche nach genau diesem Interpreten
+    }
+    const rest = artists.reduce((x, a) => (a ? x.replace(a, '') : x), nq).trim(); // Begriff ohne Interpret
+    if (rest && rest !== nq && (title === rest || title.startsWith(`${rest} `))) score += 20;
+    const text = ` ${title} ${sub} `;
+    for (const w of NOISE_WORDS) if (text.includes(` ${w} `) && !nq.includes(w)) score -= 30;
+    if (/\b(remix|live|edit|version|mix)\b/.test(title) && !/\b(remix|live|edit|version|mix)\b/.test(nq)) score -= 6;
+    return { item, score: score - rank * 0.8, matched: strong };
+  }
+
+  /** Nach Relevanz ordnen; Treffer ohne Bezug in Titel/Interpret fliegen raus, wenn genug passende da sind. */
+  function rank(query, items) {
+    const scored = items.map((item, i) => relevance(query, item, i));
+    const relevant = scored.filter((s) => s.matched > 0);
+    const keep = relevant.length >= 3 ? relevant : scored;
+    return keep.sort((a, b) => b.score - a.score).map((s) => s.item);
+  }
+
+  /** Ist mit dem Begriff ein Interpret gemeint? Nur wenn er so heißt UND YTMs bester Treffer
+   *  von ihm stammt – sonst gewinnt z. B. eine Tribute-Band namens „Bohemian Rhapsody“ gegen Queen. */
+  function meant(query, artists, hits) {
+    const artist = artists.find((a) => norm(a.title) === norm(query));
+    const best = hits[0];
+    return artist && best?.artists?.some((a) => norm(a) === norm(artist.title)) ? artist : null;
+  }
+
   /** Alle Teilbäume zu einem Schlüssel (Tiefensuche, Dokumentreihenfolge). */
   function findAll(node, key, out = []) {
     if (!node || typeof node !== 'object') return out;
@@ -389,18 +443,25 @@
       if (kind === 'playlists') {
         // Kuratierte YT-Music-Playlists zuerst, danach die der Community
         const [curated, community] = await Promise.all([run('curated').catch(() => []), run('playlists')]);
-        return uniq([...curated, ...community]);
+        return uniq([...rank(query, curated), ...rank(query, community)]);
       }
       if (kind === 'albums') {
         // Der Albenfilter liefert viel Beifang. Passt der Begriff auf einen Künstler,
         // kommt dessen komplette Diskografie zuerst.
         const [hits, artists] = await Promise.all([run('albums'), run('artists').catch(() => [])]);
-        const artist = artists.find((a) => norm(a.title) === norm(query));
-        if (!artist) return hits;
+        const artist = meant(query, artists, hits);
+        if (!artist) return rank(query, hits);
         const page = await artistPage(artist.browseId).catch(() => null);
-        return uniq([...(page?.albums ?? []), ...hits]);
+        return uniq([...(page?.albums ?? []), ...rank(query, hits)]);
       }
-      return run(kind);
+      if (kind === 'songs') {
+        // Suche nach genau einem Interpreten: seine beliebtesten Songs zuerst
+        const [hits, artists] = await Promise.all([run('songs'), run('artists').catch(() => [])]);
+        const artist = meant(query, artists, hits);
+        const top = artist ? ((await artistPage(artist.browseId).catch(() => null))?.topSongs ?? []) : [];
+        return uniq([...top, ...rank(query, hits)]);
+      }
+      return rank(query, await run(kind));
     },
     genres,
     // Startseite: Abschnitte („Noch mal anhören“, Mixe …) samt Inhalt, dazu der Verlauf
